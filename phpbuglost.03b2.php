@@ -8,18 +8,23 @@
 //                       GPL Licence                        //
 //////////////////////////////////////////////////////////////
 
+////////////////////////////////
+// Don't touch this.
+// But may be you want to keep out _bl_initial_memory
+// for better initial memory.
+// see http://pbl.elgatonaranja.com/docs#memory
+define('_bl_initial_memory', memory_get_usage());
 error_reporting(E_ALL);
 set_error_handler("bl_error_handler");
 
 ///////////////////////
-// Start Configure
+// Start Configure. Touch this!!
 
-define('_bl_debug_on',   true); // true for show console. Caution!!
+define('_bl_debug_on',   false); // true for show console.
 define('_bl_monitor_on', false); // true for use monitor options
 
 // Change this.
-// you don't need remember this.
-define('_bl_secrect_key', '_asdf_');
+define('_bl_secrect_key', '_pbl_');
 // If anyone knows this key, could delete _SESSION
 // vars you have created. This can lead to a security problem
 // if you use these variables to store important information,
@@ -27,33 +32,33 @@ define('_bl_secrect_key', '_asdf_');
 
 // true for allow delete cookies and session.
 // Remember change the secret key otherwise you will get an error.
-define('_bl_delete_vars', true);
+define('_bl_delete_vars', false);
 
 
 // true to allow view source code on listed files
 // CAUTION: security risk, be care on production sites.
-define('_bl_file_browser', true);
+define('_bl_file_browser', false);
 
 
 // show the panel only to this IP.
 // keep empty for no use.
 // For view your ip use "echo bl_get_ip();" after include the library
 // Comma separated for multiple ip
-define('_bl_allow_ip', '12.12.12.12, 127.0.0.2, 127.0.0.1');
+define('_bl_allow_ip', '');
 
 
 // Automatically add time mark for any event
 // (log messages, querys, profiles...)
-define('_bl_create_times', true);
+define('_bl_create_times', false);
 
 
 // use external css file. Multiple whit coma: estyle1.css, estyle2.css, style3.css...
-define('_bl_css_file', '../source/css/presentation.css');
-//define('_bl_css_file', '');
+//define('_bl_css_file', '../source/css/presentation.css');
+define('_bl_css_file', '');
 
 // use external js file. Multiple with coma.
-define('_bl_js_file', '../source/js/presentation.js');
-//define('_bl_js_file', '');
+//define('_bl_js_file', '../source/js/presentation.js');
+define('_bl_js_file', '');
 
 
 // types of messages in the console.
@@ -61,7 +66,7 @@ define('_bl_js_file', '../source/js/presentation.js');
 // or individual types, comma separated.
 // Exam: don't show error messages:
 // define('_bl_messages types', 'warn,info,user');
-define('_bl_messages types', 'all');
+define('_bl_messages_types', 'all');
 
 // save the console state when reloading page.
 // note: Use cookies
@@ -85,7 +90,7 @@ define('_bl_alert_errors', true);
 define('_bl_serialize_objects', false);
 
 
-// backtrace errors
+// show backtrace errors
 define('_bl_backtrace', true);
 
 
@@ -97,21 +102,21 @@ define('_bl_keyboard_shortcuts', 'true');
 define('_bl_show_keyboard_shortcuts', true);
 
 // show methods and properties on internal php classes
-define('_bl_show_internal_classes', false);
+define('_bl_show_internal_classes', true);
 
 
 //////////////////////////////////
 // use as monitor
-define('_bl_monitor_sql', true); // send mail on sql fails
-define('_bl_monitor_times', true); // send mail if match "monitor times" rules (see below)
-define('_bl_monitor_memory', true); // send mail if match "monitor memory" rules
-define('_bl_admin_mail', 'jordifreek@gmail.com'); // email to send monitor info
-define('_bl_sort_site_description', 'PBL Site'); // description. appears on mail title
+define('_bl_monitor_sql', false); // send mail on sql fails
+define('_bl_monitor_times', false); // send mail if match "monitor times" rules (see below)
+define('_bl_monitor_memory', false); // send mail if match "monitor memory" rules
+define('_bl_admin_mail', 'name@domain.com'); // email to send monitor info
+define('_bl_sort_site_description', 'My Site'); // description. appears on mail title
 
 // monitor times
-define('_bl_max_load_time', 1); // in seconds. Max allowed time for total load
-define('_bl_max_sql_time', 1); // in seconds. Max allowed time for any query
-define('_bl_max_any_time', 1); // in seconds. Max allowed time for any time mark
+define('_bl_max_load_time', 0); // in seconds. Max allowed time for total load
+define('_bl_max_sql_time', 0); // in seconds. Max allowed time for any query
+define('_bl_max_any_time', 0); // in seconds. Max allowed time for any time mark
 
 // Include log messages on mails to admin
 // Comma separated list: error,warn,info,user.
@@ -119,7 +124,7 @@ define('_bl_max_any_time', 1); // in seconds. Max allowed time for any time mark
 define('_bl_monitor_mail_log', 'error,warn,info,user');
 
 // monitor memory
-define('_bl_max_total_memory', 10); // in bytes. Max allowed total memory usage
+define('_bl_max_total_memory', 0); // in bytes. Max allowed total memory usage
 // end monitor
 ///////////////////////////////////
 
@@ -419,12 +424,13 @@ function bl_msg($msg, $file, $line, $type = 'user') {
  *
  * @access private
  */
-function bl_get_msg($type = 'all', $styles = false) {
+function bl_get_msg($type = _bl_messages_types, $styles = false) {
 
     if ($type == 'all') {
         $types = array('error', 'warn', 'user', 'info');
     }else {
         $types = explode(',', trim($type, ','));
+        $types = array_map('trim', $types);
     }
 
     // check styles (styles for html in emails (bl_send_mail()))
