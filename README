@@ -1,0 +1,17 @@
+PHP Bug Lost is a one-file script PHP debug and monitoring console. 
+Include it in your script and: send log messages, view SQL queries 
+(sends an email to the admin if there's an error), measure times and 
+memory usage (sends emails for long loading times or excessive memory 
+usage), see all the vars in your scripts and view all your AJAX queries 
+(send params and responses).
+
+PHP Bug Lost can run in a console or in a monitor. Use it like a console 
+for developing sites to help you in your daily work, and as a monitor for 
+production sites for controlling errors, load times and memory usage. 
+Find those bugs!
+
+PHP Bug Lost is free, open source. At the moment I'm experimenting with it, 
+trying new features, thinking what is good and what not... etc. let me know 
+if you found any bug or see a better way to do anything.
+
+See documentation at http://pbl.elgatonaranja.com/docs
