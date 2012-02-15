@@ -3,10 +3,10 @@ Changes on PHP Bug Lost 0.3 Beta 2
 
 Add. Source viewer for any local file path inside console
 Add. PDO support (thanks to David Djian)
-Add. _bl_allow_ip now allow multiple IP, comma separated
-Add. _bl_shutdown: call bl_debug() automatically at the end of the file
+Add. _bl_allow_ip: now allow multiple IP, comma separated
+Add. _bl_shutdown: call bl_debug() automatically at the end of the script
 Add. _bl_show_internal_classes: true/false for show internal classes
 Add. _bl_monitor_mail_log: Include logs on mail admin
-Add. _bl_messages_types: Set waht type of messages show the console
+Add. _bl_messages_types: Set what type of messages show the console
 Add. _bl_backtrace: show/hide error backtrace
 Add. New licence MIT. Now PBL is GPL/MIT
