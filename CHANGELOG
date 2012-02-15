@@ -1,18 +1,12 @@
 Changes on PHP Bug Lost 0.3 Beta 2
 
-This version require testing. On production sites use v.0.3 Beta 1
-Download 0.3 Beta 1 at pbl.elgatonaranja.com
 
-Add. Source viewer. View source for any file in the console. (experimental: security risks)
+Add. Source viewer for any local file path inside console
 Add. PDO support (thanks to David Djian)
-Add. log messages in monitor mails. Filter what type of messages (error,warn,info,user)
-Add. Filter messages in log console. Select what type of messages show the console (error,warn,info,user)
-Add. Allow view console for multiple Ip's
-Add. Show/hide error backtrace
-Add. Show/hide internal classes on vars panels
-Add. configuration constants (see comments for descriptions):
-  _bl_file_browser
-  _bl_messages_types
-  _bl_backtrace
-  _bl_show_internal_classes
-  _bl_monitor_mail_log
+Add. _bl_allow_ip now allow multiple IP, comma separated
+Add. _bl_shutdown: call bl_debug() automatically at the end of the file
+Add. _bl_show_internal_classes: true/false for show internal classes
+Add. _bl_monitor_mail_log: Include logs on mail admin
+Add. _bl_messages_types: Set waht type of messages show the console
+Add. _bl_backtrace: show/hide error backtrace
+Add. New licence MIT. Now PBL is GPL/MIT
