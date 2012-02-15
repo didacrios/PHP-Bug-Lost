@@ -4,6 +4,7 @@ This version require testing. On production sites use v.0.3 Beta 1
 Download 0.3 Beta 1 at pbl.elgatonaranja.com
 
 Add. Source viewer. View source for any file in the console. (experimental: security risks)
+Add. PDO support (thanks to David Djian)
 Add. log messages in monitor mails. Filter what type of messages (error,warn,info,user)
 Add. Filter messages in log console. Select what type of messages show the console (error,warn,info,user)
 Add. Allow view console for multiple Ip's
