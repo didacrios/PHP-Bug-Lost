@@ -20,7 +20,7 @@ set_error_handler("bl_error_handler");
 ///////////////////////
 // Start Configure. Touch this!!
 
-define('_bl_debug_on',   true); // true for show console.
+define('_bl_debug_on',   false); // true for show console.
 define('_bl_monitor_on', false); // true for use monitor options
 
 // Change this.
@@ -52,7 +52,10 @@ define('_bl_allow_ip', '');
 define('_bl_create_times', false);
 
 
-define('_bl_shutdown', true);
+// automatically call bl_debug() with
+// register_shutdown_function().
+// When true don't need to use bl_debug()
+define('_bl_shutdown', false);
 
 // use external css file. Multiple whit coma: estyle1.css, estyle2.css, style3.css...
 // keep empty for use internal css
