@@ -1,12 +1,46 @@
-Changes on PHP Bug Lost 0.3 Beta 2
+An unknow day in April - 0.5
+
+	Add. Trace Panel, show vars on local scope
+	Add. Watch Panel for view changes on vars
+	Add. Eval Panel, execute php code from console
+	Add. File Viewer, view source code of files
+	Add. SQLite3 and PDO support
+	Add. View type of sql querys
 
 
-Add. Source viewer for any local file path inside console
-Add. PDO support (thanks to David Djian)
-Add. _bl_allow_ip: now allow multiple IP, comma separated
-Add. _bl_shutdown: call bl_debug() automatically at the end of the script
-Add. _bl_show_internal_classes: true/false for show internal classes
-Add. _bl_monitor_mail_log: Include logs on mail admin
-Add. _bl_messages_types: Set what type of messages show the console
-Add. _bl_backtrace: show/hide error backtrace
-Add. New licence MIT. Now PBL is GPL/MIT
+29 January - 0.3 Beta 1
+
+	Add. Profile Panel
+	Add. _bl_allow_ip for restrict access
+	Add. _bl_debug_on and _bl_monitor_on
+	Fix. Can't serialize some objects
+	Del. is_dir, is_file and is_executable on bl_var_type()
+
+23 January - 0.2 Beta 2
+	Add. Keyboard Shortcuts
+	Add. Delete _SESSION and _COOKIE vars
+	Add. Save console state
+	Add. New UI Rediseing
+	Add. Bookmarklets and JS/CSS files
+
+09 January - 0.2 Beta 1
+
+	Add. Filter Input for search
+	Add. Backtrace php errors
+	Add. Add functions to panel vars
+	Add. PHP Panel
+	Add. Highlight (top/right corner alert) when errors
+	Add. Initial memory usage
+	Fix. Panel special vars when log an object
+	Fix. Jss/CSS Redesigned, compatibility with IE8+
+	Fix. Ajax panel sometimes don't show send params
+	Add. _bl_html_viewer
+	Del. _bl_start_mode
+
+01 September - 0.1 Beta 2
+
+	Add. Monitoring options
+	Add. _bl_start_mode
+	Add. _bl_css_file and _bl_js_file
+	Add. _bl_delete_long_vars
+	11 Agoust 2011 - First Version 0.1 Beta
