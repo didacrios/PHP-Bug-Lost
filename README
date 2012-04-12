@@ -1,3 +1,10 @@
+note: phpbuglost.php contains the latest version in development 
+of PBP Bug Lost. CSS and JS inside phpbuglost.php is out of date
+so use presentation.css and presentation.js like external css/js. 
+I am working to set up this repository as soon as possible.
+Also I'm working on a new website with documentaion at phpbuglost.com.
+New version 0.5 is here!
+
 PHP Bug Lost is a one-file script PHP debug and monitoring console. 
 Include it in your script and: send log messages, view SQL queries 
 (sends an email to the admin if there's an error), measure times and 

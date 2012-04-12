@@ -1,19 +1,38 @@
 <?php
+/* Copyright (c) 2012 Jordi Enguídanos
+
+Permission is hereby granted, free of charge, to any person obtaining 
+a copy of this software and associated documentation files (the "Software"), 
+to deal in the Software without restriction, including without limitation 
+the rights to use, copy, modify, merge, publish, distribute, sublicense, 
+and/or sell copies of the Software, and to permit persons to whom the 
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included 
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS 
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+SOFTWARE. */
+
 
 /**
- * PHP Bug lost
+ * PHP Bug lost 0.5 Alpha
  *
  * One-file script for debug and monitor webs.
  * See docs and support forum at http://www.phpbuglost.com
- *
- * @author Jordi Enguídanos
- * @version 0.5 beta
- * @licence MIT
+ * @version 0.5 Alpha
+ * @author Jordi Enguídanos <jordifreek@gmail.com>
+ * @licence MIT Licence
  */
 
 
-error_reporting(E_ALL); // show errors...
-set_error_handler("bl_error_handler"); // ... and hidden with error_handler
+error_reporting(0); // <--
+set_error_handler("bl_error_handler");
 
 
 #################################
@@ -176,9 +195,6 @@ set_error_handler("bl_error_handler"); // ... and hidden with error_handler
 	/** use explain for show more info on mysql querys */
 	define('_bl_explain_sql', false);
 
-	/** @type object Sqlite3 object */
-	$bl_sqlite = null;
-
 
 #################################
 ## - TIMES PANEL
@@ -321,7 +337,7 @@ set_error_handler("bl_error_handler"); // ... and hidden with error_handler
 ///////////////////////
 
 
-// private. name of this file script. May be you don't need to touch this
+// private. Name of this file. May be you don't need to touch this
 define('_bl_filename', basename(__file__));
 define('_bl_path', str_replace('//', '/', str_replace($_SERVER['DOCUMENT_ROOT'], '/', str_replace('\\','/', __file__))));
 define('_bl_root', $_SERVER['DOCUMENT_ROOT']);
@@ -352,7 +368,7 @@ function bl_get_time($time_start = null, $microtime = false) {
 		$time = $time - $time_start;
 	return $time;
 }
-if (defined('bl_time_start')) {
+if (!defined('bl_time_start')) {
 	define('_bl_time_start', bl_get_time(null, bl_time_start));
 }else {
 	define('_bl_time_start', bl_get_time());
