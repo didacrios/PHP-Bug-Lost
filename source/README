@@ -1,0 +1,3 @@
+PHP Bug Lost has a minified copied of this two files. You don't to include
+this files on your web but may be you want to modify and use as external
+css and js. See constants _bl_css_file and _js_css_file
