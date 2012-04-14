@@ -21,18 +21,18 @@ SOFTWARE. */
 
 
 /**
- * PHP Bug lost 0.5 Alpha
+ * PHP Bug lost 0.5
  *
- * One-file script for debug and monitor webs.
+ * One-file script for debug and monitor scripts.
  * See docs and support forum at http://www.phpbuglost.com
- * @version 0.5 Alpha
+ * @version 0.5
  * @author Jordi Enguídanos <jordifreek@gmail.com>
  * @licence MIT Licence
  */
 
 
-error_reporting(0); // <--
-set_error_handler("bl_error_handler");
+error_reporting(E_ALL); // show errors...
+set_error_handler("bl_error_handler"); // ... and hidden with error_handler
 
 
 #################################
@@ -47,24 +47,16 @@ set_error_handler("bl_error_handler");
 	 * @see _bl_file_viewer
 	 * @type string
 	 */
-	define('_bl_secret_key', '_pbls_');
+	define('_bl_secret_key', '_pbl_');
 
 
 	/**
   	 * PBL blocks some functions if you set the website in production mode:
-	 * File Viewer, delete vars and eval panel will be off is set this true
+	 * File Viewer, delete vars and eval panel will be off is set this true.
+	 * Also profile functions will be disabled for prevent performance penalization
 	 * @type string
 	 */
 	define('_bl_production', false);
-
-
-	/**
-	 * true to allow view source code on listed files
-	 * Remember change the secret key otherwise you will get an error.
-	 * @type bool
-	 */
-
-	define('_bl_file_viewer', true);
 
 	/**
 	 * Set the name for URL var used in ajax request when delete a session/cookie var
@@ -195,6 +187,9 @@ set_error_handler("bl_error_handler");
 	/** use explain for show more info on mysql querys */
 	define('_bl_explain_sql', false);
 
+	/** @type object Sqlite3 object */
+	$bl_sqlite = null;
+
 
 #################################
 ## - TIMES PANEL
@@ -228,32 +223,34 @@ set_error_handler("bl_error_handler");
 ## - OTHER OPTIONS
 
 	/**
-	 * Automatically call bl_debug() with register_shutdown_function().
-	 * When true don't need to use bl_debug()
+	 * true to allow view source code on listed files
+	 * Remember change the secret key otherwise you will get an error.
 	 * @type bool
 	 */
-	define('_bl_shutdown', false);
+
+	define('_bl_file_viewer', true);
+
 
 	/**
 	 * Use external css file. Multiple whit coma: estyle1.css, estyle2.css, style3.css...
 	 * Keep empty for use internal css
 	 * @type string
 	 */
-	define('_bl_css_file', 'pbl/presentation.css');
+	define('_bl_css_file', '');
 
 	/**
 	 * Use external js file. Multiple with coma.
 	 * Keep empty for use internal js
 	 * @type string
 	 */
-	define('_bl_js_file', 'pbl/presentation.js');
+	define('_bl_js_file', '/pbl/PHP-Bug-Lost/source/presentation.js');
 
 	/**
 	 * Save the console state when reloading page.
 	 * note: Use cookies
 	 * @type bool
 	 */
-	define('_bl_save_state', true);
+	define('_bl_save_state', false);
 
 	/**
 	 * Enable/disable shortcuts. Only when use internal js.
@@ -337,7 +334,7 @@ set_error_handler("bl_error_handler");
 ///////////////////////
 
 
-// private. Name of this file. May be you don't need to touch this
+// private. name of this file script. May be you don't need to touch this
 define('_bl_filename', basename(__file__));
 define('_bl_path', str_replace('//', '/', str_replace($_SERVER['DOCUMENT_ROOT'], '/', str_replace('\\','/', __file__))));
 define('_bl_root', $_SERVER['DOCUMENT_ROOT']);
@@ -368,7 +365,7 @@ function bl_get_time($time_start = null, $microtime = false) {
 		$time = $time - $time_start;
 	return $time;
 }
-if (!defined('bl_time_start')) {
+if (defined('bl_time_start')) {
 	define('_bl_time_start', bl_get_time(null, bl_time_start));
 }else {
 	define('_bl_time_start', bl_get_time());
@@ -414,6 +411,8 @@ class _bl {
 	public static $msg_sql 		= array(); // log querys
     public static $profile 		= array(); // log profile messages
     public static $trace   		= array(); // log trace messages
+    public static $watch 		= array(); // vars to watch
+    public static $watches 		= array(); // log watches messages
 	public static $time_start 	= _bl_time_start;
 	public static $panel_state 	= 'close'; // default panel state
 	public static $panel_active = array(
@@ -884,50 +883,48 @@ function bl_mysql($query, $con = null, $debugnum = 0) {
 	}
 	$time = $t_stop;
 
+	if (mysql_error()) {
+		$error = mysql_error();
+	}
+	
 	// check for errros
-	if ($sql) {
-		$q = trim(strtolower($query));
-		$insert_id = $results = '0';
-		if (substr($q, 0, 6) == 'insert') { // if is insert get the last id
-			$insert_id = mysql_insert_id();
-		} else {
-			if (substr($q, 0, 6) == 'select') { // if is select get num rows
+	$insert_id = $results = '0';
+	$explain_info = '';
+	$q = trim(strtolower($query));
+	$insert_id = $results = '0';
+	if (substr($q, 0, 6) == 'insert') { // if is insert get the last id
+		$insert_id = mysql_insert_id();
+	} else {
+		if (substr($q, 0, 6) == 'select') { // if is select get num rows
 
-				// explain query?
-				$explain_info = '';
-				if (_bl_explain_sql and !$error and _bl_production == false) {
-					$sql_explain = mysql_query("EXPLAIN " . $query);
-					$explain = mysql_fetch_assoc($sql_explain);
+			// explain query?
+			$explain_info = '';
+			if (_bl_explain_sql and !$error and _bl_production == false) {
+				$sql_explain = mysql_query("EXPLAIN " . $query);
+				$explain = mysql_fetch_assoc($sql_explain);
 
-					$explain_info = '
-					<p class="bl_explain">
-						<strong>EXPLAIN</strong> -&gt;Table: <em>' . $explain['table'] .
-						'</em> <span class="bl_msg_separator">|</span>
-						Type: <em>' . $explain['type'] .
-						'</em> <span class="bl_msg_separator">|</span>
-						Possible Keys: <em>' . $explain['possible_keys'] .
-						'</em> <span class="bl_msg_separator">|</span>
-						Key: <em>' . $explain['key'] .
-						'</em> <span class="bl_msg_separator">|</span>
-						Key len: <em>' . $explain['key_len'] .
-						'</em> <span class="bl_msg_separator">|</span>
-						Ref: <em>' . $explain['ref'] .
-						'</em> <span class="bl_msg_separator">|</span>
-						Extra: <em>' . $explain['Extra'] . '</em>
-					</p>';
+				$explain_info = '
+				<p class="bl_explain">
+					<strong>EXPLAIN</strong> -&gt;Table: <em>' . $explain['table'] .
+					'</em> <span class="bl_msg_separator">|</span>
+					Type: <em>' . $explain['type'] .
+					'</em> <span class="bl_msg_separator">|</span>
+					Possible Keys: <em>' . $explain['possible_keys'] .
+					'</em> <span class="bl_msg_separator">|</span>
+					Key: <em>' . $explain['key'] .
+					'</em> <span class="bl_msg_separator">|</span>
+					Key len: <em>' . $explain['key_len'] .
+					'</em> <span class="bl_msg_separator">|</span>
+					Ref: <em>' . $explain['ref'] .
+					'</em> <span class="bl_msg_separator">|</span>
+					Extra: <em>' . $explain['Extra'] . '</em>
+				</p>';
 
-					$results = $explain['rows'];
-				} else {
-					$results = mysql_num_rows($sql);
-				}
-
+				$results = $explain['rows'];
+			} else {
+				$results = mysql_num_rows($sql);
 			}
-		}
-	}else {
-		if (mysql_error()) {
-			$error = mysql_error();
-		} else {
-			$error = 'Can\'t complete the query. Unknown Error'; // we need this??... may be...
+
 		}
 	}
 
@@ -943,7 +940,7 @@ function bl_mysql($query, $con = null, $debugnum = 0) {
 	_bl::$msg_sql[$c]['file'] = $debug[$debugnum]['file'];
 	_bl::$msg_sql[$c]['line'] = $debug[$debugnum]['line'];
 	
-	if ($error) {
+	if ($error and _bl_monitor_sql and _bl_monitor_on) {
 		bl_send_mail(
 			'<p>New MySQL Error from PHPBugLost</p>', 
 			'New MySQL Error from PHPBugLost', 
@@ -1434,10 +1431,10 @@ function bl_get_vars($array, $array_name, $id_prefix = '', $caption = '') {
 			$caption = '<caption>'.$caption.'</caption>';
 		}
 
-		$result = '
-        <table id="bl_table' . strtolower($array_name) . '">
-			'.$caption.'
-            <thead>
+		$thead = '';
+		if ($id_prefix != 'watch') {
+			$thead = '
+			<thead>
                 <tr>
                     <th>Var</th>
                     <th>Value</th>
@@ -1445,7 +1442,13 @@ function bl_get_vars($array, $array_name, $id_prefix = '', $caption = '') {
 					<th>Size</th>
                     ' . $extra_cols . '
                 </tr>
-            </thead>
+            </thead>';
+		}
+
+		$result = '
+        <table id="bl_table' . strtolower($array_name) . '">
+			'.$caption.'
+            '.$thead.'
             <tbody>';
 
 		$count = 0;
@@ -1781,6 +1784,9 @@ function bl_get_class_methods($reflection, $count) {
 	return $result;
 }
 
+/**
+ * Return properties of a class
+ */
 function bl_get_class_properties($reflection, $count) {
 	$result = '';
 	$properties = $reflection->getProperties();
@@ -1815,6 +1821,9 @@ function bl_get_class_properties($reflection, $count) {
 	return $result;
 }
 
+/**
+ * Get declared vars and create the html code for the vars panel
+ */
 function bl_get_classes() {
 
 	$classes = get_declared_classes();
@@ -1907,6 +1916,10 @@ function bl_get_classes() {
 
 }
 
+
+/**
+ * Return usage info
+ */
 function bl_get_usage() {
 
 	if (PHP_OS == 'Linux') {
@@ -2174,7 +2187,7 @@ function bl_get_times($times) {
 /**
  * bl_media();
  *
- * Get css y js tags
+ * Get css and js tags
  *
  * @access private
  * @param string $source List of files separated by comma
@@ -2208,7 +2221,7 @@ function bl_media($source, $type) {
 function bl_css() {
 
 	$result = "<style type=\"text/css\">
-    #bl_debug *{margin:0;padding:0;color:#111;z-index:100000; background-color:transparent;font-size:100%;text-align:left}#bl_debug a{text-decoration:none}#bl_debug_wrap{width:95%;margin:0 auto 0;position:fixed;bottom:0;margin-left:2%;margin-right:5px; font-family:'Lucida Sans Unicode','Lucida Grande',sans-serif;font-size:13px;z-index:999999999;position:fixed;left:0px;bottom:0px}body >div#bl_debug_wrap{position:fixed;left:0px;bottom:0px}.bl_opacity{opacity:0.1}#bl_debug span.error{color:#f00}#bl_debug_header{padding:10px;color:#fff;height:20px;overflow:hidden;background:#ea0105;background:-moz-linear-gradient(top,#ea0105 1%,#ad0008 100%);background:-webkit-gradient(linear,left top,left bottom,color-stop(1%,#ea0105),color-stop(100%,#ad0008));background:-webkit-linear-gradient(top,#ea0105 1%,#ad0008 100%);background:-o-linear-gradient(top,#ea0105 1%,#ad0008 100%);background:-ms-linear-gradient(top,#ea0105 1%,#ad0008 100%);filter:progid:DXImageTransform.Microsoft.gradient( startColorstr='#ea0105',endColorstr='#ad0008',GradientType=0 );background:linear-gradient(top,#ea0105 1%,#ad0008 100%)}#bl_debug_menu{float:left}#bl_debug_menu *{color:#fff !important}#bl_debug_menu ul{overflow:hidden;list-style-type:none}#bl_debug_menu li,#bl_debug_menu a{display:block;float:left}#bl_debug_menu a{padding:3px;float:left;margin:0 10px;color:#fff !important;outline:none}#bl_debug_menu a.bl_debug_activo,#bl_debug_toggle a{background-color:#BA0106;border:1px solid #222;border-radius:5px}#bl_debug_menu sup{font-size:8px}#bl_debug_toggle{float:right;width:250px;font-size:10px}#bl_debug_toggle_buttons a{float:right;margin:0 3px;padding:2px 3px;color:#fff;text-decoration:none; outline:none}#bl_debug_toggle_buttons a{text-decoration:none}#bl_tool_box{position:absolute;bottom:40px;right:100px;width:460px; height:400px;border:3px solid #E80005;background-color:#fff; border-bottom:none;overflow:auto;overflow:hidden;opacity:0.9}#bl_debug_toggle #bl_tool_box a{background:none;border:none;text-decoration:none}#bl_debug_toggle #bl_tool_box a{color:#f33;font-size:12px} #bl_debug_toggle #bl_tool_box a:hover{color:#f00;text-decoration:underline}#bl_debug_toggle #bl_tool_box ul{list-style-type:none;margin-bottom:10px}#bl_debug_toggle #bl_tool_box h3{margin-bottom:5px;font-size:14px}#bl_js_css{width:200px;float:left; border-left:1px solid #ccc;padding:15px}#bl_bookmarks{width:200px;float:left;padding:10px}.bl_half_panel{height:300px}.bl_close_panel{height:0;display:none}.bl_full_panel{height:600px}#bl_debug_content{border:5px solid #EA0105;border-bottom:none;background-color:#fff}#bl_debug table{font-size:11px}#bl_debug table th{text-align:left;padding:10px;background-color:#ddf1fb; border-bottom:1px dashed #ccc}#bl_debug table td{padding:5px;border-bottom:1px dashed #555; vertical-align:top;text-align:left}#bl_debug table td.bl_col_title{background-color:#f6f6f6;font-weight:bold;border-right:1px dashed #ccc}#bl_debug_panels{background-color:#fff;height:300px;overflow:auto}#bl_debug_panels div.bl_debug_panel_active{display:block}#bl_debug .bl_panel_info a{color:#008000;text-decoration:none}.bl_panel_info{width:80%;float:left}.bl_debug_panel{display:none;overflow:auto}.bl_full_panel .bl_debug_panel{display:none; height:600px}#bl_debug_var_panels,#bl_debug_php_panels,#bl_debug_html_panels{background-color:#fff;overflow:auto}.bl_debug_var_panel,.bl_debug_php_panel,.bl_debug_html_panel{display:none;overflow:auto}#bl_debug_var_panels div.bl_debug_var_panel_activo, #bl_debug_php_panels div.bl_debug_php_panel_activo, #bl_debug_html_panels div.bl_debug_html_panel_activo {display:block}#bl_debug #bl_debug_info h3,#bl_debug #bl_debug_info p,#bl_debug #bl_debug_info ul{margin-bottom:15px}#bl_debug #bl_debug_info ul{margin-left:15px !important}#bl_debug .bl_menu_vertical{background-color:#880400;width:auto; overflow:hidden;min-width:100px;float:left}#bl_debug .bl_menu_vertical li,.bl_menu_vertical a{display:block}#bl_debug .bl_menu_vertical a{display:block;background-color:#DA1010;padding:3px;border-bottom:1px solid #ea0105;color:#fff}#bl_debug .bl_menu_vertical a:hover{background-color:#C92929}#bl_debug_msg_menu a.bl_debug_msg_btn_activo, #bl_debug_var_menu a.bl_debug_var_btn_activo, #bl_debug_php_menu a.bl_debug_php_btn_activo, #bl_debug_html_menu a.bl_debug_html_btn_activo{ background-color:#fff;color:#333}#bl_debug_msg_menu a.bl_debug_msg_btn_activo:hover, #bl_debug_var_menu a.bl_debug_var_btn_activo:hover, #bl_debug_php_menu a.bl_debug_php_btn_activo:hover, #bl_debug_html_menu a.bl_debug_html_btn_activo:hover{ background-color:#fff;color:#333}#bl_debug .in20{padding:20px}#bl_debug .bl_debug_var_content .no_top_in{padding-top:0 !important}#bl_debug .in10{padding:10px}#bl_debug .bl_border_top{border-top-left-radius:0.8ex;border-top-right-radius:0.8ex}#bl_debug .bl_right{text-align:right}#bl_debug .bl_nothing p{color:#666 !important;font-size:3em;text-align:center}#bl_debug .bl_opacity{opacity:0.3;filter:alpha(opacity = 30)}.bl_vars_box{width:250px;height:250px;float:left;margin:20px}.bl_vars_box_title{background-color:#222;color:#fff}#bl_debug td.bl_msg_error{background-color:#f33;color:#000}#bl_debug td.bl_msg_warn{background-color:#F90;color:#000}#bl_debug td.bl_msg_info{background-color:#36F;color:#000}#bl_debug td.bl_msg_user{background-color:#333;color:#000}#bl_debug .bl_normal_td .bl_td{background-color:transparent}#bl_debug .bl_hover_td .bl_td{background-color:#999}#bl_debug .bl_msg_info{font-weight:bold}#bl_debug .bl_msg_file{font-style:italic}#bl_debug .bl_msg_line{font-style:italic}#bl_debug .bl_msg_separator{color:#f00;margin:0 10px}#bl_debug .bl_msg_table tbody tr{display:none}#bl_debug .bl_msg_table tr.bl_highlight_row td.bl_td{background-color:#eee}#bl_debug .bl_msg_table tbody tr.bl_msg_activo{display:table-row}#bl_debug table.bl_backtrace tr{display:table-row}#bl_debug table.bl_backtrace th,#bl_debug table.bl_backtrace td{border-bottom:none;padding:2px}#bl_memory_box{width:200px}#bl_memory_box,#bl_included{padding:5px;background-color:#f6f6f6;border:1px solid #ccc;float:left;margin:0 10px;border-radius:5px;-moz-border-radius:5px;-webkit-border-radius:5px}#bl_memory_box h3,#bl_includedh3{padding:5px;border-bottom:1px dashed #666;margin-bottom:10px}#bl_memory_box span{display:block}#bl_debug .bl_view_html{display:none;margin:10px}#bl_debug .bl_view_html_title{width:100px;margin-right:20px;padding:5px;background-color:#ccc}#bl_debug .bl_view_html_content{border:1px solid #ccc;padding:10px}#bl_debug_heatmap{text-align:left}#bl_debug .bl_ajax_msg{margin-bottom:10px;border-bottom:1px dashed #ccc; padding:5px}#bl_debug .bl_ajax_msg a{color:#00f;margin:0 20px}#bl_debug .bl_ajax_msg span{font-size:small;color:#444}#bl_debug .bl_ajax_msg span.bl_highlight_error{color:#f33}#bl_debug .bl_ajax_request{margin:0 10px 20px}#bl_debug .bl_ajax_response{border:1px solid #ccc;overflow:auto;padding:10px;margin:10px}#bl_debug .bl_ajax_menu{margin:0;padding:0;list-style-type:none;overflow:hidden;margin-top:10px}#bl_debug .bl_ajax_menu li,#bl_debug .bl_ajax_menu a{float:left;display:block}#bl_debug .bl_ajax_menu a{margin:0 5px;padding:3px;background-color:#eee;color:#333;text-decoration:none}#bl_debug .bl_ajax_menu a.bl_active{background-color:#ccc;color:#111}#bl_debug .bl_ajax_header{padding:3px;background-color:#dfefff}#bl_debug .bl_box{width:200px}#bl_debug .bl_box2{width:400px}#bl_debug .bl_box,#bl_debug .bl_box2,#bl_included{padding:5px;background-color:#f6f6f6;border:1px solid #ccc;float:left;margin:0 10px;border-radius:5px;-moz-border-radius:5px;-webkit-border-radius:5px}#bl_debug .bl_box h3,#bl_debug .bl_box2 h3,#bl_includedh3{ padding:5px;border-bottom:1px dashed #666;margin-bottom:10px}#bl_debug .bl_box span,#bl_debug .bl_box2 span{display:block}#bl_debug .bl_view_html{display:none;margin:10px}#bl_debug .bl_view_html_title{width:100px;margin-right:20px;padding:5px;background-color:#ccc}#bl_debug .bl_view_html_content{border:1px solid #ccc;padding:10px}#bl_debug .bl_filter_box{background-color:#f3f3f3;border-radius:3px; width:200px;padding:5px;margin-bottom:5px;border:1px solid #ccc}#bl_debug .bl_filter_box input{border:1px solid #444}#bl_show_errors{padding:5px;background-color:#fff;border:2px solid #f00; position:fixed;top:10px;right:10px;display:block;font-size:14px; font-weight:bold}#bl_debug .bl_blue{color:#00F}#bl_debug .bl_blue strong{color:#00F}#bl_debug .bl_grey{color:#999}#bl_debug .bl_orange{color:#F60}#bl_debug #bl_file_container{position:fixed;width:90%;height:80%; top:50px;left:50px; border:4px solid #333;background-color:#fff; display:none;overflow:hidden; -webkit-box-shadow:0px 0px 30px rgba(15,15,15,1); -moz-box-shadow: 0px 0px 30px rgba(15,15,15,1); box-shadow: 0px 0px 30px rgba(15,15,15,1)}#bl_debug #bl_file_explorer{overflow:auto;height:95%}#bl_debug #bl_header_browser{overflow:hidden;height:5%;background-color:#333; font-size:1.2em;font-weight:bold;color:#eee !important}#bl_debug #bl_header_browser p,#bl_debug #bl_header_browser a{color:#fff !important}#bl_debug #bl_file_container .highlight_line{background-color:#C3E9FF}#bl_debug #bl_loading{display:none;padding:5px; background-color:#fff;color:#fff;font-weight:bold; position:fixed;margin-left:45%;width:100px;text-align:center; border:4px solid #ea0105;border-top:none}
+    #bl_debug *{margin:0;padding:0;color:#111;z-index:100000; background-color:transparent;font-size:100%;text-align:left}#bl_debug a{text-decoration:none}#bl_debug_wrap{width:95%;margin:0 auto 0;position:fixed;bottom:0;margin-left:2%;margin-right:5px; font-family:'Lucida Sans Unicode','Lucida Grande',sans-serif;font-size:13px;z-index:999999999;position:fixed;left:0px;bottom:0px}body >div#bl_debug_wrap{position:fixed;left:0px;bottom:0px}.bl_opacity{opacity:0.1}#bl_debug span.error{color:#f00}#bl_debug_header{padding:10px;color:#fff;height:20px;overflow:hidden;background:#ea0105;background:-moz-linear-gradient(top,#ea0105 1%,#ad0008 100%);background:-webkit-gradient(linear,left top,left bottom,color-stop(1%,#ea0105),color-stop(100%,#ad0008));background:-webkit-linear-gradient(top,#ea0105 1%,#ad0008 100%);background:-o-linear-gradient(top,#ea0105 1%,#ad0008 100%);background:-ms-linear-gradient(top,#ea0105 1%,#ad0008 100%);filter:progid:DXImageTransform.Microsoft.gradient( startColorstr='#ea0105',endColorstr='#ad0008',GradientType=0 );background:linear-gradient(top,#ea0105 1%,#ad0008 100%)}#bl_debug_menu{float:left}#bl_debug_menu *{color:#fff !important}#bl_debug_menu ul{overflow:hidden;list-style-type:none}#bl_debug_menu li,#bl_debug_menu a{display:block;float:left}#bl_debug_menu a{padding:3px;float:left;margin:0 10px;color:#fff !important;outline:none}#bl_debug_menu a.bl_debug_activo,#bl_debug_toggle a{background-color:#BA0106;border:1px solid #222;border-radius:5px}#bl_debug_menu sup{font-size:8px}#bl_debug_toggle{float:right;width:250px;font-size:10px}#bl_debug_toggle_buttons a{float:right;margin:0 3px;padding:2px 3px;color:#fff;text-decoration:none; outline:none}#bl_debug_toggle_buttons a{text-decoration:none}#bl_tool_box{position:absolute;bottom:40px;right:100px;width:460px; height:400px;border:3px solid #E80005;background-color:#fff; border-bottom:none;overflow:auto;overflow:hidden;opacity:0.9}#bl_debug_toggle #bl_tool_box a{background:none;border:none;text-decoration:none}#bl_debug_toggle #bl_tool_box a{color:#f33;font-size:12px} #bl_debug_toggle #bl_tool_box a:hover{color:#f00;text-decoration:underline}#bl_debug_toggle #bl_tool_box ul{margin:0 0 10px 5px}#bl_debug_toggle #bl_tool_box h3{margin-bottom:5px;font-size:14px}#bl_js_css{width:200px;word-wrap:break-word;float:left; border-left:1px solid #ccc;padding:15px}#bl_bookmarks{width:200px;float:left;padding:10px}.bl_half_panel{height:300px}.bl_close_panel{height:0;display:none}.bl_full_panel{height:600px}#bl_debug_content{border:5px solid #EA0105;border-bottom:none;background-color:#fff}#bl_debug table{font-size:11px}#bl_debug table th{text-align:left;padding:10px;background-color:#ddf1fb; border-bottom:1px dashed #ccc}#bl_debug table td{padding:5px;border-bottom:1px dashed #555; vertical-align:top;text-align:left}#bl_debug table td.bl_col_title{background-color:#f6f6f6;font-weight:bold;border-right:1px dashed #ccc}#bl_debug_panels{background-color:#fff;overflow:auto}.bl_half_panel #bl_debug_panels{height:300px}.bl_full_panel #bl_debug_panels{height:600px}#bl_debug_panels div.bl_debug_panel_active{display:block}#bl_debug .bl_panel_info a{color:#008000;text-decoration:none}.bl_panel_info{width:85%;float:left}.bl_debug_panel{display:none;overflow:auto}.bl_full_panel .bl_debug_panel{display:none; height:600px}#bl_debug_var_panels,#bl_debug_php_panels, #bl_debug_profile_panels#bl_debug_eval_panels{background-color:#fff;overflow:auto}.bl_debug_var_panel,.bl_debug_php_panel,.bl_debug_profile_panel,.bl_debug_eval_panel{display:none;overflow:auto}#bl_debug_var_panels div.bl_debug_var_panel_activo, #bl_debug_php_panels div.bl_debug_php_panel_activo,#bl_debug_profile_panels div.bl_debug_profile_panel_activo,#bl_debug_eval_panels div.bl_debug_eval_panel_activo {display:block}#bl_debug #bl_debug_info h3,#bl_debug #bl_debug_info p,#bl_debug #bl_debug_info ul{margin-bottom:15px}#bl_debug #bl_debug_info ul{margin-left:15px !important}#bl_debug .bl_menu_vertical{background-color:#880400;width:auto; overflow:hidden;min-width:100px;float:left}#bl_debug .bl_menu_vertical li,.bl_menu_vertical a{display:block}#bl_debug .bl_menu_vertical a{display:block;background-color:#DA1010;padding:3px;border-bottom:1px solid #ea0105;color:#fff}#bl_debug .bl_menu_vertical a:hover{background-color:#C92929}#bl_debug_msg_menu a.bl_debug_msg_btn_activo, #bl_debug_var_menu a.bl_debug_var_btn_activo, #bl_debug_php_menu a.bl_debug_php_btn_activo, #bl_debug_profile_menu a.bl_debug_profile_btn_activo,#bl_debug_eval_menu a.bl_debug_eval_btn_activo{ background-color:#fff;color:#333}#bl_debug_msg_menu a.bl_debug_msg_btn_activo:hover, #bl_debug_var_menu a.bl_debug_var_btn_activo:hover, #bl_debug_php_menu a.bl_debug_php_btn_activo:hover, #bl_debug_profile_menu a.bl_debug_profile_btn_activo:hover,#bl_debug_eval_menu a.bl_debug_eval_btn_activo:hover{ background-color:#fff;color:#333}#bl_debug .in20{padding:20px}#bl_debug .bl_debug_var_content .no_top_in{padding-top:0 !important}#bl_debug .in10{padding:10px}#bl_debug .bl_border_top{border-top-left-radius:0.8ex;border-top-right-radius:0.8ex}#bl_debug .bl_right{text-align:right}#bl_debug .bl_nothing p{color:#666 !important;font-size:3em;text-align:center;padding:20px}#bl_debug .bl_opacity{opacity:0.3;filter:alpha(opacity = 30)}.bl_vars_box{width:250px;height:250px;float:left;margin:20px}.bl_vars_box_title{background-color:#222;color:#fff}#bl_debug td.bl_msg_error{background-color:#f33;color:#000}#bl_debug td.bl_msg_warn{background-color:#F90;color:#000}#bl_debug td.bl_msg_info{background-color:#36F;color:#000}#bl_debug td.bl_msg_user{background-color:#333;color:#000}#bl_debug .bl_normal_td .bl_td{background-color:transparent}#bl_debug .bl_hover_td .bl_td{background-color:#999}#bl_debug .bl_msg_info{font-weight:bold}#bl_debug .bl_msg_file{font-style:italic}#bl_debug .bl_msg_line{font-style:italic}#bl_debug .bl_msg_separator{color:#f00;margin:0 10px}#bl_debug .bl_msg_table tbody tr{display:none}#bl_debug .bl_msg_table tr.bl_highlight_row td.bl_td{background-color:#eee}#bl_debug .bl_msg_table tbody tr.bl_msg_activo{display:table-row}#bl_debug table.bl_backtrace tr{display:table-row}#bl_debug table.bl_backtrace th,#bl_debug table.bl_backtrace td{border-bottom:none;padding:2px}#bl_memory_box{width:200px}#bl_memory_box,#bl_included{padding:5px;background-color:#f6f6f6;border:1px solid #ccc;float:left;margin:0 10px;border-radius:5px;-moz-border-radius:5px;-webkit-border-radius:5px}#bl_memory_box h3,#bl_includedh3{padding:5px;border-bottom:1px dashed #666;margin-bottom:10px}#bl_memory_box span{display:block}#bl_debug .bl_view_html{display:none;margin:10px}#bl_debug .bl_view_html_title{width:100px;margin-right:20px;padding:5px;background-color:#ccc}#bl_debug .bl_view_html_content{border:1px solid #ccc;padding:10px}#bl_debug_heatmap{text-align:left}#bl_debug .bl_ajax_msg{margin-bottom:10px;border-bottom:1px dashed #ccc; padding:5px}#bl_debug .bl_ajax_msg a{color:#00f;margin:0 20px}#bl_debug .bl_ajax_msg span{font-size:small;color:#444;font-family:monospace}#bl_debug .bl_ajax_msg span.bl_highlight_error{color:#f33}#bl_debug .bl_ajax_request{margin:0 10px 20px}#bl_debug .bl_ajax_response{border:1px solid #ccc;overflow:auto;padding:10px;margin:10px}#bl_debug .bl_ajax_menu{margin:0;padding:0;list-style-type:none;overflow:hidden;margin-top:10px}#bl_debug .bl_ajax_menu li,#bl_debug .bl_ajax_menu a{float:left;display:block}#bl_debug .bl_ajax_menu a{margin:0 5px;padding:3px;background-color:#eee;color:#333;text-decoration:none}#bl_debug .bl_ajax_menu a.bl_active{background-color:#ccc;color:#111}#bl_debug .bl_ajax_header{padding:3px;background-color:#dfefff}#bl_debug .bl_box{width:200px;margin-bottom:15px}#bl_debug .bl_box2{width:400px}#bl_debug .bl_box,#bl_debug .bl_box2,#bl_included{padding:5px;background-color:#f6f6f6;border:1px solid #ccc;float:left;margin:0 10px 15px;border-radius:5px;-moz-border-radius:5px;-webkit-border-radius:5px}#bl_debug .bl_box h3,#bl_debug .bl_box2 h3,#bl_includedh3{ padding:5px;border-bottom:1px dashed #666;margin-bottom:10px}#bl_debug .bl_box span,#bl_debug .bl_box2 span{display:block}#bl_debug .bl_view_html{display:none;margin:10px}#bl_debug .bl_view_html_title{width:100px;margin-right:20px;padding:5px;background-color:#ccc}#bl_debug .bl_view_html_content{border:1px solid #ccc;padding:10px}#bl_debug .bl_filter_box{background-color:#f3f3f3;border-radius:3px; width:200px;padding:5px;margin-bottom:5px;border:1px solid #ccc}#bl_debug .bl_filter_box input{border:1px solid #444}#bl_show_errors{padding:5px;background-color:#fff;border:2px solid #f00; position:fixed;top:10px;right:10px;display:block;font-size:14px; font-weight:bold}#bl_debug .bl_blue{color:#00F}#bl_debug .bl_blue strong{color:#00F}#bl_debug .bl_grey{color:#999}#bl_debug .bl_orange{color:#F60}#bl_debug #bl_file_container{position:fixed;width:90%;height:80%; top:50px;left:50px; border:4px solid #333;background-color:#fff; display:none;overflow:hidden; -webkit-box-shadow:0px 0px 30px rgba(15,15,15,1); -moz-box-shadow: 0px 0px 30px rgba(15,15,15,1); box-shadow: 0px 0px 30px rgba(15,15,15,1)}#bl_debug #bl_file_explorer{overflow:auto;height:95%}#bl_debug #bl_header_browser{overflow:hidden;height:5%;background-color:#333; font-size:1.2em;font-weight:bold;color:#eee !important}#bl_debug #bl_header_browser p,#bl_debug #bl_header_browser a{color:#fff !important}#bl_debug #bl_file_container .highlight_line{background-color:#C3E9FF}#bl_debug #bl_loading{display:none;padding:5px; background-color:#fff;color:#fff;font-weight:bold; position:fixed;margin-left:45%;width:100px;text-align:center; border:4px solid #ea0105;border-top:none}#bl_debug #bl_eval_code{width:95%}#bl_debug .bl_half_panel #bl_eval_code{height:240px}#bl_debug .bl_full_panel #bl_eval_code{height:500px}#bl_eval_submit{padding:5px 15px;background-color:#333;cursor:pointer;color:#fff;border-radius:5px;border:1px solid #000}#bl_eval_submit:hover{background-color#555}#bl_debug .bl_trace{margin-bottom:10px}#bl_debug .bl_trace_head a.bl_trace_link{display:block;padding:2px 5px;background-color:#eee;color:#222;border:1px solid #ccc;border-radius:5px}#bl_debug .bl_trace_title {font-weight:bold;font-size:1.2em}#bl_debug .bl_trace_time {font-weight:bold;color:green}#bl_debug .bl_trace_memory {font-weight:bold;color:red}#bl_debug .bl_trace_info{display:none;margin:-1px 0 0 20px}#bl_debug .bl_trace_info table{border:1px solid #ccc;border-top:0}#bl_debug .bl_trace_info caption{background-color:#eee;border-left:1px solid #ccc;border-right:1px solid #ccc;padding:3px}#bl_debug .bl_trace_info th{background-color:#eee;padding:3px;font-weight:normal}
     </style>";
 
 	// WTF Parse error... expecting T_PAAMAYIM_NEKUDOTAYIM
@@ -2233,7 +2246,7 @@ function bl_js() {
 
 	$result = "
     <script type=\"text/javascript\">
-    var bl_shortcuts=true,bl_key_msg=49,bl_key_sql=50,bl_key_vars=51,bl_key_profile=52,bl_key_time=53,bl_key_memory=54,bl_key_ajax=55,bl_key_php=56,bl_key_eval=57,bl_key_jscss=74,bl_key_opacity=79,bl_key_info=73,bl_key_plus=77,bl_key_close=88;var \$bl=function(id){return document.getElementById(id)};String.prototype.trim=function(){return this.replace(/^\s+|\s+$/g,\"\")};String.prototype.ltrim=function(){return this.replace(/^\s+/,\"\")};String.prototype.rtrim=function(){return this.replace(/\s+$/,\"\")};Element.prototype.hasClass=function(class_name){this.className=this.className.replace(/^\s+|\s+$/g,\"\");this.className=\" \"+this.className+\" \";if(this.className.search(\" \"+class_name+\" \")!==-1){return true}this.className=this.className.replace(/^\s+|\s+$/g,\"\");return false};Element.prototype.removeClass=function(class_name){this.className=this.className.replace(class_name,'');this.className=this.className.replace(/^\s+|\s+$/g,\"\")};Element.prototype.addClass=function(class_name){this.className=this.className+' '+class_name;this.className=this.className.replace(/^\s+|\s+$/g,\"\")};function bl_toggle(obj,mode){var el=document.getElementById(obj);if(mode==='more'){document.getElementById(\"bl_debug_content\").style.display='block';if(el.className==='bl_full_panel'){el.className='bl_half_panel'}else{el.className='bl_full_panel'}}else{if(el.style.display!=='none'){el.style.display='none'}else{el.style.display=''}}}function randomString(length){var str,i,chars='abcdefghiklmnopqrstuvwxyz'.split('');if(!length){length=Math.floor(Math.random()*chars.length)}for(i=0;i<length;i+=1){str+=chars[Math.floor(Math.random()*chars.length)]}return str}function time(ms){var t=ms/1000;return Math.round(t*100)/100}function bl_listen(event,elem,func,id){if(id){elem=\$bl(elem)}else{elem=document}if(elem.addEventListener){elem.addEventListener(event,func,false)}else if(elem.attachEvent){var r=elem.attachEvent(\"on\"+event,func);return r}else{throw'No es posible añadir evento';}}bl_listen('keyup','body',bl_keydown);function bl_keydown(e){var target;if(!bl_shortcuts){return}if(navigator.appName==='Microsoft Internet Explorer'){e=window.event;target=e.srcElement.nodeName.toLowerCase()}else{target=e.target.localName}if(target==='html'||target==='body'){if(e.keyCode==bl_key_msg){bl_debug_set_panel('msg')}else if(e.keyCode===bl_key_sql){bl_debug_set_panel('sql')}else if(e.keyCode===bl_key_profile){bl_debug_set_panel('profile')}else if(e.keyCode===bl_key_vars){bl_debug_set_panel('vars')}else if(e.keyCode===bl_key_time){bl_debug_set_panel('time')}else if(e.keyCode===bl_key_memory){bl_debug_set_panel('memory')}else if(e.keyCode===bl_key_ajax){bl_debug_set_panel('ajax')}else if(e.keyCode===bl_key_php){bl_debug_set_panel('php')}else if(e.keyCode===bl_key_eval){bl_debug_set_panel('eval')}else if(e.keyCode===bl_key_jscss){bl_toggle('bl_tool_box')}else if(e.keyCode===bl_key_opacity){bl_opacity()}else if(e.keyCode===bl_key_info){bl_debug_set_panel('info')}else if(e.keyCode===bl_key_plus){bl_setPanelSize('plus')}else if(e.keyCode===bl_key_close){bl_setPanelSize('close')}}}function bl_view_html(el){var el1=document.getElementById('bl_view_html_'+el),el2=document.getElementById('bl_view_'+el),el3=document.getElementById('bl_view_more_'+el);if(el1.style.display==='block'){el1.style.display='none';el2.style.display='block';el3.style.display='none'}else{el1.style.display='block';el2.style.display='none';el3.style.display='none'}}function bl_show_errors(){bl_toggle('bl_show_errors')}function bl_alert_errors(){var bl_interval=setInterval('bl_show_errors()',500);setTimeout(\"clearInterval(\"+bl_interval+\")\",3000)}function bl_opacity(){var el=\$bl('bl_debug');if(el.hasClass('bl_opacity')){el.removeClass('bl_opacity')}else{el.addClass('bl_opacity')}}function bl_setPanelSize(size){var panel_size='close';if(size==='plus'){if(\$bl('bl_debug_content').className==='bl_half_panel'){\$bl('bl_debug_content').className='bl_full_panel';panel_size='full'}else{\$bl('bl_debug_content').className='bl_half_panel';panel_size='half'}}else if(size==='close'){\$bl('bl_debug_content').className='bl_close_panel';panel_size='close'}else{\$bl('bl_debug_content').className='bl_'+size+'_panel';panel_size='half'}if(panel_size==='close'){bl_setCookie('__bl_panel_active','none',1)}bl_setCookie('panel_size_bl',panel_size,1)}function bl_debug_set_panel(panel){var c1=\"bl_debug_panel\",c2=\"bl_debug_panel_active\",c3=\"bl_debug_btn\",c4=\"bl_debug_activo\";if(\$bl(\"bl_debug_\"+panel).hasClass(\"bl_debug_panel_active\")){\$bl(\"bl_debug_\"+panel).className=c1;\$bl(\"bl_debug_content\").className='bl_close_panel';\$bl(c3+\"_\"+panel).className=c3;bl_setPanelSize('close')}else{\$bl(\"bl_debug_msg\").className=c1;\$bl(\"bl_debug_sql\").className=c1;\$bl(\"bl_debug_vars\").className=c1;\$bl(\"bl_debug_time\").className=c1;\$bl(\"bl_debug_memory\").className=c1;\$bl(\"bl_debug_ajax\").className=c1;\$bl(\"bl_debug_info\").className=c1;\$bl(\"bl_debug_php\").className=c1;\$bl(\"bl_debug_eval\").className=c1;\$bl(\"bl_debug_profile\").className=c1;\$bl(\"bl_debug_\"+panel).className=c1+\" \"+c2;\$bl(\"bl_debug_btn_msg\").className=c3;\$bl(c3+\"_sql\").className=c3;\$bl(c3+\"_vars\").className=c3;\$bl(c3+\"_time\").className=c3;\$bl(c3+\"_memory\").className=c3;\$bl(c3+\"_ajax\").className=c3;\$bl(c3+\"_eval\").className=c3;\$bl(c3+\"_php\").className=c3;\$bl(c3+\"_profile\").className=c3;\$bl(c3+\"_\"+panel).className=c3+\" \"+c4;if(\$bl(\"bl_debug_content\").hasClass('bl_close_panel')){\$bl(\"bl_debug_content\").className='bl_half_panel';bl_setPanelSize('half')}}bl_setCookie('__bl_panel_active',panel,1)}function bl_debug_set_msg(type){var i,bl_search,bl_search2,e,allHTMLTags=document.getElementsByTagName(\"tr\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_normal_tr')!==-1){allHTMLTags[i].className=allHTMLTags[i].className.replace('bl_msg_activo','');bl_search=allHTMLTags[i].className.search('bl_debug_msg_'+type);bl_search2=allHTMLTags[i].className.search('bl_msg_activo');if(bl_search!==-1){if(bl_search2===-1){allHTMLTags[i].className=allHTMLTags[i].className+' bl_msg_activo'}}else{if(type==='all'){if(bl_search2===-1){allHTMLTags[i].className=allHTMLTags[i].className+' bl_msg_activo'}}}}}allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_msg_btn')!==-1){allHTMLTags[i].className='bl_debug_msg_btn'}}e=document.getElementById('bl_debug_msg_btn_'+type);e.addClass('bl_debug_msg_btn_activo')}function bl_debug_set_var(panel){var i,e,allHTMLTags=document.getElementsByTagName(\"div\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_var_panel')!==-1){allHTMLTags[i].className='bl_debug_var_panel'}}allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_var_btn')!==-1){allHTMLTags[i].className='bl_debug_var_btn'}}e=document.getElementById('bl_debug_var_btn_'+panel);e.addClass('bl_debug_var_btn_activo');e=document.getElementById('bl_debug_var_'+panel);e.addClass('bl_debug_var_panel_activo')}function bl_debug_set_php(panel){var i,e,allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_php_btn')!==-1){allHTMLTags[i].className='bl_debug_php_btn'}}allHTMLTags=document.getElementsByTagName(\"div\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_php_panel')!==-1){allHTMLTags[i].className='bl_debug_php_panel'}}e=document.getElementById('bl_debug_php_btn_'+panel);e.addClass('bl_debug_php_btn_activo');e=document.getElementById('bl_debug_php_'+panel);e.addClass('bl_debug_php_panel_activo')}function bl_debug_set_eval(panel){var i,e,allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_eval_btn')!==-1){allHTMLTags[i].className='bl_debug_eval_btn'}}allHTMLTags=document.getElementsByTagName(\"div\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_eval_panel')!==-1){allHTMLTags[i].className='bl_debug_eval_panel'}}e=document.getElementById('bl_debug_eval_btn_'+panel);e.addClass('bl_debug_eval_btn_activo');e=document.getElementById('bl_debug_eval_'+panel);e.addClass('bl_debug_eval_panel_activo')}function bl_expand(count){var i,allHTMLTags=document.getElementsByTagName(\"span\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_class_'+count)!==-1){if(allHTMLTags[i].style.display!=='block'){allHTMLTags[i].style.display='block';\$bl('bl_method_comments_expand_'+count).style.display='none';\$bl('bl_method_comments_'+count).style.display='block'}else{allHTMLTags[i].style.display='inline';\$bl('bl_method_comments_expand_'+count).style.display='block';\$bl('bl_method_comments_'+count).style.display='none'}}}}function filter(phrase,id){var words=\$bl(phrase).value.toLowerCase().split(\" \"),table=document.getElementById(id),ele,r,i,displayStyle;for(r=1;r<table.rows.length;r+=1){ele=table.rows[r].innerHTML.replace(/<[^>]+>/g,\"\");displayStyle=\"none\";for(i=0;i<words.length;i+=1){if(ele.toLowerCase().indexOf(words[i])>=0){displayStyle=\"\"}else{displayStyle=\"none\";break}}table.rows[r].style.display=displayStyle}}function filterUser(){filter('bl_filter_user','bl_table_user')}function filterSpecial(){filter('bl_filter_special','bl_table_special')}function filterFunctions(){filter('bl_filter_functions','bl_table_functions')}function filterUclasses(){filter('bl_filter_uclasses','bl_table_uclasses')}function filterIclasses(){filter('bl_filter_iclasses','bl_table_iclasses')}function filterConstants(){filter('bl_filter_constants','bl_table_constants')}function filterGet(){filter('bl_filter_get','bl_table_get')}function filterPost(){filter('bl_filter_post','bl_table_post')}function filterSession(){filter('bl_filter_session','bl_table_session')}function filterCookie(){filter('bl_filter_cookie','bl_table_cookie')}function filterFiles(){filter('bl_filter_files','bl_table_files')}function filterServer(){filter('bl_filter_server','bl_table_server')}bl_listen('keyup','bl_filter_user',filterUser,true);bl_listen('keyup','bl_filter_special',filterSpecial,true);bl_listen('keyup','bl_filter_functions',filterFunctions,true);bl_listen('keyup','bl_filter_uclasses',filterUclasses,true);bl_listen('keyup','bl_filter_iclasses',filterIclasses,true);bl_listen('keyup','bl_filter_constants',filterConstants,true);bl_listen('keyup','bl_filter_get',filterGet,true);bl_listen('keyup','bl_filter_post',filterPost,true);bl_listen('keyup','bl_filter_session',filterSession,true);bl_listen('keyup','bl_filter_cookie',filterCookie,true);bl_listen('keyup','bl_filter_files',filterFiles,true);bl_listen('keyup','bl_filter_server',filterServer,true);function bl_ajax(){var xmlhttp=false;try{xmlhttp=new ActiveXObject(\"Msxml2.XMLHTTP\")}catch(e){try{xmlhttp=new ActiveXObject(\"Microsoft.XMLHTTP\")}catch(E){xmlhttp=false}}if(!xmlhttp&&typeof XMLHttpRequest!=='undefined'){xmlhttp=new XMLHttpRequest()}return xmlhttp}function bl_del_var(var_name,url,type,key,tr_id){var ajax;url=url+'?bl_del=1&var='+var_name+'&type='+type+'&key='+key;\$bl('bl_loading').style.display='block';ajax=bl_ajax();ajax.open(\"GET\",url,true);ajax.onreadystatechange=function(){if(ajax.readyState===4){\$bl('bl_loading').style.display='none';if(ajax.responseText==='ok'){var tr=\$bl(tr_id);tr.innerHTML='<td colspan=\"5\">var $'+type+'[\"'+var_name+'\"]  deleted</td>'}else if(ajax.responseText==='error-key'){alert('There\'re a problem with your secret key')}else if(ajax.responseText==='error-cookie'){alert('Sorry, I can\t delete this cookie.')}else{alert('Error. No vars deleted!')}}};ajax.send(null)}function bl_load_file(file,line,url,key){if(!line){line=0}url=url+\"?bl_file=\"+file+\"&line=\"+line+\"&key=\"+key;\$bl('bl_loading').style.display='block';\$bl('bl_file_container').innerHTML='';ajax=bl_ajax();ajax.open(\"GET\",url,true);ajax.onreadystatechange=function(){var scroll;if(ajax.readyState===4){\$bl('bl_loading').style.display='none';if(ajax.responseText==='error-key'){alert('There\'re a problem with your secret key')}else if(ajax.responseText==='error-file'){alert('File not found.')}else if(ajax.responseText==='error'){('Error...')}else{\$bl('bl_file_container').scrollTop=0;\$bl('bl_file_container').innerHTML=ajax.responseText;\$bl('bl_file_container').style.display='block';scroll=parseInt(line)-10;\$bl('line_'+scroll).scrollIntoView()}}};ajax.send(null)}bl_listen('submit','bl_eval_form',bl_eval_code,'bl_eval_form');function bl_eval_code(){var content=\$bl('bl_eval_code').value,url=\$bl('bl_url').value,key=\$bl('bl_secret_key').value;url=url+\"?bl_eval=\"+content+\"&bl_key=\"+key;\$bl('bl_loading').style.display='block';ajax=bl_ajax();ajax.open(\"POST\",url,true);ajax.onreadystatechange=function(){if(ajax.readyState===4){\$bl('bl_loading').style.display='none';if(ajax.responseText==='error-key'){alert('There\'re a problem with your secret key')}else if(ajax.responseText==='error'){('Unknow Error...')}else{\$bl('bl_debug_eval_result').innerHTML=ajax.responseText;bl_debug_set_eval('result')}}};ajax.send(null);return false}function bl_highlight_row(highlight,el){if(highlight===true){el.addClass('bl_highlight_row')}else{el.removeClass('bl_highlight_row')}}function view_array(id){var div=document.getElementById(id),a=document.getElementById(id.replace('div_','a_'));if(div.style.display==='block'){div.style.display='none';a.style.display='block'}else{div.style.display='block';a.style.display='none'}}function htmlentities(str){return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;')}function bl_get_js(){var html='',i,filename,viewSource='',js=document.getElementsByTagName('script');if(js.length>0){if(navigator.appName==='Netscape'){viewSource='view-source:'}for(i=0;i<js.length;i+=1){if(js[i].src.length){filename=js[i].src.substring(js[i].src.lastIndexOf('/')+1);html=html+'<li><a href=\"'+viewSource+js[i].src+'\" target=\"_blank\">'+filename+'</a></li>'}}\$bl('bl_js').innerHTML='<h3>Javascript Files</h3><ul>'+html+'</ul>'}}function bl_get_css(){var html='',i,filename,viewSource='',css=document.getElementsByTagName('link');if(css.length>0){\$bl('bl_css').innerHTML=\"\";if(navigator.appName==='Netscape'){viewSource='view-source:'}for(i=0;i<css.length;i+=1){if(css[i].href.length&&css[i].rel==='stylesheet'){filename=css[i].href.substring(css[i].href.lastIndexOf('/')+1);html=html+'<li><a href=\"'+viewSource+css[i].href+'\" target=\"_blank\">'+filename+'</a></li>'}}\$bl('bl_css').innerHTML='<h3>CSS Files</h3><ul>'+html+'</ul>'}}bl_get_js();bl_get_css();function bl_setCookie(c_name,value,exdays){var c_value,exdate=new Date();exdate.setDate(exdate.getDate()+exdays);c_value=escape(value)+((exdays===null)?\"\":\"; expires=\"+exdate.toUTCString());document.cookie=c_name+\"=\"+c_value+'; path=/'}
+    var bl_shortcuts=true,bl_key_msg=49,bl_key_sql=50,bl_key_vars=51,bl_key_profile=52,bl_key_time=53,bl_key_memory=54,bl_key_ajax=55,bl_key_php=56,bl_key_eval=57,bl_key_jscss=74,bl_key_opacity=79,bl_key_info=73,bl_key_plus=77,bl_key_close=88;var \$bl=function(id){return document.getElementById(id)};String.prototype.trim=function(){return this.replace(/^\s+|\s+\$/g,\"\")};String.prototype.ltrim=function(){return this.replace(/^\s+/,\"\")};String.prototype.rtrim=function(){return this.replace(/\s+\$/,\"\")};Element.prototype.hasClass=function(class_name){this.className=this.className.replace(/^\s+|\s+\$/g,\"\");this.className=\" \"+this.className+\" \";if(this.className.search(\" \"+class_name+\" \")!==-1){return true}this.className=this.className.replace(/^\s+|\s+\$/g,\"\");return false};Element.prototype.removeClass=function(class_name){this.className=this.className.replace(class_name,'');this.className=this.className.replace(/^\s+|\s+\$/g,\"\")};Element.prototype.addClass=function(class_name){this.className=this.className+' '+class_name;this.className=this.className.replace(/^\s+|\s+\$/g,\"\")};function bl_toggle(obj,mode){var el=document.getElementById(obj);if(mode==='more'){document.getElementById(\"bl_debug_content\").style.display='block';if(el.className==='bl_full_panel'){el.className='bl_half_panel'}else{el.className='bl_full_panel'}}else{if(el.style.display!=='block'){el.style.display='block'}else{el.style.display='none'}}}function randomString(length){var str,i,chars='abcdefghiklmnopqrstuvwxyz'.split('');if(!length){length=Math.floor(Math.random()*chars.length)}for(i=0;i<length;i+=1){str+=chars[Math.floor(Math.random()*chars.length)]}return str}function time(ms){var t=ms/1000;return Math.round(t*100)/100}function bl_listen(event,elem,func,id){if(id){elem=\$bl(elem)}else{elem=document}if(elem){if(elem.addEventListener){elem.addEventListener(event,func,false)}else if(elem.attachEvent){var r=elem.attachEvent(\"on\"+event,func);return r}else{throw'No es posible añadir evento';}}}bl_listen('keyup','body',bl_keydown);function bl_keydown(e){var target;if(!bl_shortcuts){return}if(navigator.appName==='Microsoft Internet Explorer'){e=window.event;target=e.srcElement.nodeName.toLowerCase()}else{target=e.target.localName}if(target==='html'||target==='body'){if(e.keyCode===bl_key_msg){bl_debug_set_panel('msg')}else if(e.keyCode===bl_key_sql){bl_debug_set_panel('sql')}else if(e.keyCode===bl_key_profile){bl_debug_set_panel('profile')}else if(e.keyCode===bl_key_vars){bl_debug_set_panel('vars')}else if(e.keyCode===bl_key_time){bl_debug_set_panel('time')}else if(e.keyCode===bl_key_memory){bl_debug_set_panel('memory')}else if(e.keyCode===bl_key_ajax){bl_debug_set_panel('ajax')}else if(e.keyCode===bl_key_php){bl_debug_set_panel('php')}else if(e.keyCode===bl_key_eval){bl_debug_set_panel('eval')}else if(e.keyCode===bl_key_jscss){bl_toggle('bl_tool_box')}else if(e.keyCode===bl_key_opacity){bl_opacity()}else if(e.keyCode===bl_key_info){bl_debug_set_panel('info')}else if(e.keyCode===bl_key_plus){bl_setPanelSize('plus')}else if(e.keyCode===bl_key_close){bl_setPanelSize('close')}}}function bl_view_html(el){var el1=document.getElementById('bl_view_html_'+el),el2=document.getElementById('bl_view_'+el),el3=document.getElementById('bl_view_more_'+el);if(el1.style.display==='block'){el1.style.display='none';el2.style.display='block';el3.style.display='none'}else{el1.style.display='block';el2.style.display='none';el3.style.display='none'}}function bl_show_errors(){bl_toggle('bl_show_errors')}function bl_alert_errors(){var bl_interval=setInterval('bl_show_errors()',500);setTimeout(\"clearInterval(\"+bl_interval+\")\",3000)}function bl_opacity(){var el=\$bl('bl_debug');if(el.hasClass('bl_opacity')){el.removeClass('bl_opacity')}else{el.addClass('bl_opacity')}}function bl_setPanelSize(size){var panel_size='close';if(size==='plus'){if(\$bl('bl_debug_content').className==='bl_half_panel'){\$bl('bl_debug_content').className='bl_full_panel';panel_size='full'}else{\$bl('bl_debug_content').className='bl_half_panel';panel_size='half'}}else if(size==='close'){\$bl('bl_debug_content').className='bl_close_panel';panel_size='close'}else{\$bl('bl_debug_content').className='bl_'+size+'_panel';panel_size='half'}if(panel_size==='close'){bl_setCookie('__bl_panel_active','none',1)}bl_setCookie('panel_size_bl',panel_size,1)}function bl_debug_set_panel(panel){var c1=\"bl_debug_panel\",c2=\"bl_debug_panel_active\",c3=\"bl_debug_btn\",c4=\"bl_debug_activo\";if(\$bl(\"bl_debug_\"+panel).hasClass(\"bl_debug_panel_active\")){\$bl(\"bl_debug_\"+panel).className=c1;\$bl(\"bl_debug_content\").className='bl_close_panel';\$bl(c3+\"_\"+panel).className=c3;bl_setPanelSize('close')}else{\$bl(\"bl_debug_msg\").className=c1;\$bl(\"bl_debug_sql\").className=c1;\$bl(\"bl_debug_vars\").className=c1;\$bl(\"bl_debug_time\").className=c1;\$bl(\"bl_debug_memory\").className=c1;\$bl(\"bl_debug_ajax\").className=c1;\$bl(\"bl_debug_info\").className=c1;\$bl(\"bl_debug_php\").className=c1;\$bl(\"bl_debug_eval\").className=c1;\$bl(\"bl_debug_profile\").className=c1;\$bl(\"bl_debug_\"+panel).className=c1+\" \"+c2;\$bl(\"bl_debug_btn_msg\").className=c3;\$bl(c3+\"_sql\").className=c3;\$bl(c3+\"_vars\").className=c3;\$bl(c3+\"_time\").className=c3;\$bl(c3+\"_memory\").className=c3;\$bl(c3+\"_ajax\").className=c3;\$bl(c3+\"_eval\").className=c3;\$bl(c3+\"_php\").className=c3;\$bl(c3+\"_profile\").className=c3;\$bl(c3+\"_\"+panel).className=c3+\" \"+c4;if(\$bl(\"bl_debug_content\").hasClass('bl_close_panel')){\$bl(\"bl_debug_content\").className='bl_half_panel';bl_setPanelSize('half')}}bl_setCookie('__bl_panel_active',panel,1)}function bl_debug_set_msg(type){var i,bl_search,bl_search2,e,allHTMLTags=document.getElementsByTagName(\"tr\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_normal_tr')!==-1){allHTMLTags[i].className=allHTMLTags[i].className.replace('bl_msg_activo','');bl_search=allHTMLTags[i].className.search('bl_debug_msg_'+type);bl_search2=allHTMLTags[i].className.search('bl_msg_activo');if(bl_search!==-1){if(bl_search2===-1){allHTMLTags[i].className=allHTMLTags[i].className+' bl_msg_activo'}}else{if(type==='all'){if(bl_search2===-1){allHTMLTags[i].className=allHTMLTags[i].className+' bl_msg_activo'}}}}}allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_msg_btn')!==-1){allHTMLTags[i].className='bl_debug_msg_btn'}}e=document.getElementById('bl_debug_msg_btn_'+type);e.addClass('bl_debug_msg_btn_activo')}function bl_debug_set_var(panel){var i,e,allHTMLTags=document.getElementsByTagName(\"div\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_var_panel')!==-1){allHTMLTags[i].className='bl_debug_var_panel'}}allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_var_btn')!==-1){allHTMLTags[i].className='bl_debug_var_btn'}}e=document.getElementById('bl_debug_var_btn_'+panel);e.addClass('bl_debug_var_btn_activo');e=document.getElementById('bl_debug_var_'+panel);e.addClass('bl_debug_var_panel_activo')}function bl_debug_set_php(panel){var i,e,allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_php_btn')!==-1){allHTMLTags[i].className='bl_debug_php_btn'}}allHTMLTags=document.getElementsByTagName(\"div\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_php_panel')!==-1){allHTMLTags[i].className='bl_debug_php_panel'}}e=document.getElementById('bl_debug_php_btn_'+panel);e.addClass('bl_debug_php_btn_activo');e=document.getElementById('bl_debug_php_'+panel);e.addClass('bl_debug_php_panel_activo')}function bl_debug_set_eval(panel){var i,e,allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_eval_btn')!==-1){allHTMLTags[i].className='bl_debug_eval_btn'}}allHTMLTags=document.getElementsByTagName(\"div\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_eval_panel')!==-1){allHTMLTags[i].className='bl_debug_eval_panel'}}e=document.getElementById('bl_debug_eval_btn_'+panel);e.addClass('bl_debug_eval_btn_activo');e=document.getElementById('bl_debug_eval_'+panel);e.addClass('bl_debug_eval_panel_activo')}function bl_debug_set_profile(panel){var i,e,allHTMLTags=document.getElementsByTagName(\"a\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_profile_btn')!==-1){allHTMLTags[i].className='bl_debug_profile_btn'}}allHTMLTags=document.getElementsByTagName(\"div\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_debug_profile_panel')!==-1){allHTMLTags[i].className='bl_debug_profile_panel'}}e=document.getElementById('bl_debug_profile_btn_'+panel);e.addClass('bl_debug_profile_btn_activo');e=document.getElementById('bl_debug_profile_'+panel);e.addClass('bl_debug_profile_panel_activo')}function bl_expand(count){var i,allHTMLTags=document.getElementsByTagName(\"span\");for(i=0;i<allHTMLTags.length;i+=1){if(allHTMLTags[i].className.search('bl_class_'+count)!==-1){if(allHTMLTags[i].style.display!=='block'){allHTMLTags[i].style.display='block';\$bl('bl_method_comments_expand_'+count).style.display='none';\$bl('bl_method_comments_'+count).style.display='block'}else{allHTMLTags[i].style.display='inline';\$bl('bl_method_comments_expand_'+count).style.display='block';\$bl('bl_method_comments_'+count).style.display='none'}}}}function filter(phrase,id){var words=\$bl(phrase).value.toLowerCase().split(\" \"),table=document.getElementById(id),ele,r,i,displayStyle;for(r=1;r<table.rows.length;r+=1){ele=table.rows[r].innerHTML.replace(/<[^>]+>/g,\"\");displayStyle=\"none\";for(i=0;i<words.length;i+=1){if(ele.toLowerCase().indexOf(words[i])>=0){displayStyle=\"\"}else{displayStyle=\"none\";break}}table.rows[r].style.display=displayStyle}}function filterUser(){filter('bl_filter_user','bl_table_user')}function filterSpecial(){filter('bl_filter_special','bl_table_special')}function filterFunctions(){filter('bl_filter_functions','bl_table_functions')}function filterUclasses(){filter('bl_filter_uclasses','bl_table_uclasses')}function filterIclasses(){filter('bl_filter_iclasses','bl_table_iclasses')}function filterConstants(){filter('bl_filter_constants','bl_table_constants')}function filterGet(){filter('bl_filter_get','bl_table_get')}function filterPost(){filter('bl_filter_post','bl_table_post')}function filterSession(){filter('bl_filter_session','bl_table_session')}function filterCookie(){filter('bl_filter_cookie','bl_table_cookie')}function filterFiles(){filter('bl_filter_files','bl_table_files')}function filterServer(){filter('bl_filter_server','bl_table_server')}bl_listen('keyup','bl_filter_user',filterUser,true);bl_listen('keyup','bl_filter_special',filterSpecial,true);bl_listen('keyup','bl_filter_functions',filterFunctions,true);bl_listen('keyup','bl_filter_uclasses',filterUclasses,true);bl_listen('keyup','bl_filter_iclasses',filterIclasses,true);bl_listen('keyup','bl_filter_constants',filterConstants,true);bl_listen('keyup','bl_filter_get',filterGet,true);bl_listen('keyup','bl_filter_post',filterPost,true);bl_listen('keyup','bl_filter_session',filterSession,true);bl_listen('keyup','bl_filter_cookie',filterCookie,true);bl_listen('keyup','bl_filter_files',filterFiles,true);bl_listen('keyup','bl_filter_server',filterServer,true);function bl_ajax(){var xmlhttp=false;try{xmlhttp=new ActiveXObject(\"Msxml2.XMLHTTP\")}catch(e){try{xmlhttp=new ActiveXObject(\"Microsoft.XMLHTTP\")}catch(E){xmlhttp=false}}if(!xmlhttp&&typeof XMLHttpRequest!=='undefined'){xmlhttp=new XMLHttpRequest()}return xmlhttp}function bl_del_var(var_name,url,type,key,tr_id,url_var_name){var ajax;url=url+'?'+url_var_name+'=1&var='+var_name+'&type='+type+'&bl_key='+key;\$bl('bl_loading').style.display='block';ajax=bl_ajax();ajax.open(\"GET\",url,true);ajax.onreadystatechange=function(){if(ajax.readyState===4){\$bl('bl_loading').style.display='none';if(ajax.responseText==='ok'){var tr=\$bl(tr_id);tr.innerHTML='<td colspan=\"5\">var \$'+type+'[\"'+var_name+'\"]  deleted</td>'}else if(ajax.responseText==='error-key'){alert('There\'re a problem with your secret key')}else if(ajax.responseText==='error-cookie'){alert('Sorry, I can\t delete this cookie.')}else{alert('Error. No vars deleted!')}}};ajax.send(null)}function bl_load_file(file,line,url,key,url_var_name){if(!line){line=0}url=url+\"?\"+url_var_name+\"=\"+file+\"&line=\"+line+\"&key=\"+key;\$bl('bl_loading').style.display='block';\$bl('bl_file_container').innerHTML='';ajax=bl_ajax();ajax.open(\"GET\",url,true);ajax.onreadystatechange=function(){var scroll;if(ajax.readyState===4){\$bl('bl_loading').style.display='none';if(ajax.responseText==='error-key'){alert('There\'re a problem with your secret key')}else if(ajax.responseText==='error-file'){alert('File not found.')}else if(ajax.responseText==='error'){alert('Error...')}else{\$bl('bl_file_container').scrollTop=0;\$bl('bl_file_container').innerHTML=ajax.responseText;\$bl('bl_file_container').style.display='block';scroll=parseInt(line)-10;\$bl('line_'+scroll).scrollIntoView()}}};ajax.send(null)}bl_listen('submit','bl_eval_form',bl_eval_code,'bl_eval_form');function bl_eval_code(){var content=\$bl('bl_eval_code').value,url=\$bl('bl_url').value,key=\$bl('bl_secret_key').value,url_var_name=\$bl('bl_eval_url_name').value;url=url+\"?\"+url_var_name+\"=\"+content+\"&bl_key=\"+key;\$bl('bl_loading').style.display='block';ajax=bl_ajax();ajax.open(\"POST\",url,true);ajax.onreadystatechange=function(){if(ajax.readyState===4){\$bl('bl_loading').style.display='none';if(ajax.responseText==='error-key'){alert('There\'re a problem with your secret key')}else if(ajax.responseText==='error'){alert('Unknow Error...')}else{\$bl('bl_debug_eval_result').innerHTML=ajax.responseText;bl_debug_set_eval('result')}}};ajax.send(null);return false}function bl_highlight_row(highlight,el){if(highlight===true){el.addClass('bl_highlight_row')}else{el.removeClass('bl_highlight_row')}}function view_array(id){var div=document.getElementById(id),a=document.getElementById(id.replace('div_','a_'));if(div.style.display==='block'){div.style.display='none';a.style.display='block'}else{div.style.display='block';a.style.display='none'}}function htmlentities(str){return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;')}function bl_get_js(){var html='',i,filename,viewSource='',js=document.getElementsByTagName('script');if(js.length>0){if(navigator.appName==='Netscape'){viewSource='view-source:'}for(i=0;i<js.length;i+=1){if(js[i].src.length){filename=js[i].src.substring(js[i].src.lastIndexOf('/')+1);html=html+'<li><a href=\"'+viewSource+js[i].src+'\" target=\"_blank\">'+filename+'</a></li>'}}\$bl('bl_js').innerHTML='<h3>Javascript Files</h3><ul>'+html+'</ul>'}}function bl_get_css(){var html='',i,filename,viewSource='',css=document.getElementsByTagName('link');if(css.length>0){\$bl('bl_css').innerHTML=\"\";if(navigator.appName==='Netscape'){viewSource='view-source:'}for(i=0;i<css.length;i+=1){if(css[i].href.length&&css[i].rel==='stylesheet'){filename=css[i].href.substring(css[i].href.lastIndexOf('/')+1);html=html+'<li><a href=\"'+viewSource+css[i].href+'\" target=\"_blank\">'+filename+'</a></li>'}}\$bl('bl_css').innerHTML='<h3>CSS Files</h3><ul>'+html+'</ul>'}}bl_get_js();bl_get_css();function bl_setCookie(c_name,value,exdays){var c_value,exdate=new Date();exdate.setDate(exdate.getDate()+exdays);c_value=escape(value)+((exdays===null)?\"\":\"; expires=\"+exdate.toUTCString());document.cookie=c_name+\"=\"+c_value+'; path=/'}
     </script>";
 
 	if (_bl_ajax_active) {
@@ -2387,12 +2400,15 @@ function bl_check_times($bl_msg_time) {
 
 				bl_send_mail($msg, $title, $data);
 			}
-
 		}
-
 	}
 }
 
+/**
+ * bl_get_bookmarklets()
+ * Render bookmarklet panel
+ * @var string $type The type/categorie of bookmarklet to reder, may be js|css|other
+ */
 function bl_get_bookmarklets($type) {
 	$result = '';
 
@@ -2449,7 +2465,9 @@ function bl_add_bookmark($type, $title, $url, $quote = '"') {
 }
 
 /**
- *
+ * Get phpinfo
+ * Extracted from xn.Debug. Copyright Rouven Volk (http://xn-debug.sourceforge.net/)
+ * @return string
  */
 function bl_phpinfo() {
 	ob_start();
@@ -2461,8 +2479,243 @@ function bl_phpinfo() {
 		'</body>') - strpos($phpinfo, '<body>') - 6);
 }
 
+
+#####################################
+### trace functions
+
+
 /**
- * bl_get_profile())
+ * bl_trace()
+ * Get declared vars in the scope when is called
+ * @var string $trace_name The name for the trace
+ * @var string $defined_vars Pass an array of vars, requierd inside local scopes
+ * return void
+ */
+function bl_trace($trace_name = '', $defined_vars = null) {
+	
+	/* Memory at this point */
+	$memory = memory_get_peak_usage();
+	$memory_num = strip_tags(bl_convert($memory));
+
+	/* Load Time */
+	$total_load_time = bl_format_time(bl_get_time(_bl::$time_start));
+	
+	if (_bl_production == true) return false;
+	
+	$trace = array(
+		'memory' => $memory_num,
+		'time'   => $total_load_time,
+		'vars'   => array(),
+		'name'   => $trace_name,
+		'debug' => debug_backtrace()
+	);
+	
+	$trace_vars = array();
+	
+	if ($defined_vars == null) {
+		$defined_vars = $GLOBALS;
+	}
+	
+	// temp var, only for check array keys on $defined_vars
+	// TODO: check if any php version or config have more predefined vars
+	$array_vars_names = array(
+		'_SERVER',
+		'GLOBALS',
+		'_POST',
+		'_GET',
+		'_SESSION',
+		'_FILES',
+		'_COOKIE',
+		'_REQUEST',
+		'_GLOBALS',
+		'_ENV',
+		'REQUEST',
+		'ENV');
+		
+	foreach ($defined_vars as $key => $value) {
+		if (!in_array($key, $array_vars_names)) {
+			$trace['vars'][$key] = $value;
+		}
+	}
+	
+	_bl::$trace[] = $trace;
+}
+
+
+/**
+ * bl_get_trace()
+ * Render trace panel
+ * @return string The html code for the panel
+ */
+function bl_get_trace() {
+
+	$result = '';
+	
+	if (count(_bl::$trace)) {
+		$count = 0;
+		foreach(_bl::$trace as $trace_key => $trace) {
+		
+			++$trace_id;
+			
+			$vars = bl_get_vars(
+				$trace['vars'], '
+				_USER', 
+				'trace_' . $trace_id . '_', 
+				bl_link_file($trace['debug'][0]['file'], $trace['debug'][0]['line']) . ' '.$trace['debug'][0]['line']
+			);
+			
+			$trace_name = '';
+			if ($trace['name']) {
+				$trace_name = $trace['name'];
+			}else {
+				$trace_name = 'Trace '.$trace_id;
+			}
+			
+			$result .= '
+			<div class="bl_trace">
+				<div class="bl_trace_head">
+					<a href="javascript:void(0)" class="bl_trace_link" onclick="bl_toggle(\'bl_trace_info_'.$trace_id.'\')">
+						<span class="bl_trace_title">'.$trace_name.'</span> |  
+						<span class="bl_trace_time">'.$trace['time'].'</span> | 
+						<span class="bl_trace_memory">'.$trace['memory'].'</span>
+					</a>
+				</div>
+				<div class="bl_trace_info" id="bl_trace_info_'.$trace_id.'">
+					'.$vars.'
+				</div>
+			</div>
+			';
+		}
+		
+	}
+
+	return $result;
+}
+
+
+#####################################
+### watch functions
+
+/**
+ * bl_tick()
+ * Fired in every tick. Check for changes on registered vars
+ */
+function bl_tick() {
+	$result = '';
+	
+	$debug = debug_backtrace();
+	
+	static $buffer = array(); // save last state of a var (to prevent duplicate info) 
+	static $defined = array(); // to check if is the first tick for a var
+	
+	if (count(_bl::$watch)) {
+		foreach(_bl::$watch as $watch) {
+		
+			// check if the var exists
+			if (isset($GLOBALS[$watch])) {
+				$w = $GLOBALS[$watch];
+			}else {
+				$w = 'undefined';
+			}
+	
+			// first time
+			if (!isset($buffer[$watch])) {
+				$defined[$watch] = true;
+				$buffer[$watch] = $w;
+				_bl::$watches[$watch][] = array($w, $debug[0]['file'], $debug[0]['line']);
+			}else {
+				// check if the var has a different value at this tick
+				if ($buffer[$watch] != $w) {
+					// check the var not is undefined
+					if ($defined[$watch] == true and $w != 'undefined') {
+						_bl::$watches[$watch][] = array($w, $debug[0]['file'], $debug[0]['line']);
+					}
+				}
+			}
+			
+			$buffer[$watch] = $w;
+		}
+	}else {
+		bl_error('PHP Bug Lost: bl_watch() has been initialized without variables');
+	}
+}
+
+
+function bl_watch() {
+	
+	if (_bl_production == true) {
+		return false;
+	}
+
+	register_tick_function('bl_tick');
+	
+	$args = func_get_args();
+	foreach ($args as $arg) {
+		_bl::$watch[] = $arg;
+	}
+}
+
+
+function bl_get_watches() {
+
+	$result = '';
+	
+	if (count(_bl::$watches)) {
+		$count = 0;
+		foreach(_bl::$watches as $watch_key => $watch) {
+		
+			++$watch_id;
+		
+			$watch_details = '';
+			foreach ($watch as $detail) {
+				if (is_array($detail)) {
+					$d = array($watch_key => $detail[0]);
+					$watch_details .= '
+						<tr>
+							<td>'.bl_get_vars($d, '_USER', 'watch').'</td>
+							<td>'.bl_link_file($detail[1], $detail[2]).'</td>
+							<td>'.$detail[2].'</td>
+						</tr>';
+				}
+			}
+			
+			$result .= '
+			<div class="bl_trace">
+				<div class="bl_trace_head">
+					<a href="javascript:void(0)" class="bl_trace_link" onclick="bl_toggle(\'bl_watch_info_'.$watch_id.'\')">
+						<span class="bl_trace_title">$'.$watch_key.'</span>
+					</a>
+				</div>
+				<div class="bl_trace_info" id="bl_watch_info_'.$watch_id.'">
+					<table>
+						<thead>
+							<tr>
+								<th>value</th>
+								<th>in file</th>
+								<th>at line</th>
+							</tr>
+						</thead>
+						<tbody>
+							'.$watch_details.'
+						</tbody>
+					</table>
+				</div>
+			</div>';
+		}
+	}else {
+		$result = '<div class="bl_nothing"><p>There aren\'t watches</p></div>';
+	}
+
+	return $result;
+}
+
+
+#####################################
+### Profile functions
+
+
+/**
+ * bl_get_profile()
  * Call to bl_profile_function and get profile messages.
  * If there aren't messages return a string with text "no profile messages"
  * @return string An HTML table with message or a text saying "no profile message"
@@ -2527,89 +2780,6 @@ function bl_get_profile() {
     return $result;
 }
 
-
-function bl_trace() {
-	
-	/* Memory at this point */
-	$memory = memory_get_peak_usage();
-	$memory_num = strip_tags(bl_convert($memory));
-
-	/* Load Time */
-	$total_load_time = bl_format_time(bl_get_time(_bl::$time_start));
-	
-	$trace = array(
-		'memory' => $memory_num,
-		'time'   => $total_load_time,
-		'vars'   => array(),
-		'debug' => debug_backtrace()
-	);
-	
-	$trace_vars = array();
-	
-	$defined_vars = $GLOBALS;
-	// temp var, only for check array keys on $defined_vars
-	// TODO: check if any php version or config have more predefined vars
-	$array_vars_names = array(
-		'_SERVER',
-		'GLOBALS',
-		'_POST',
-		'_GET',
-		'_SESSION',
-		'_FILES',
-		'_COOKIE',
-		'_REQUEST',
-		'_GLOBALS',
-		'_ENV',
-		'REQUEST',
-		'ENV');
-		
-	foreach ($defined_vars as $key => $value) {
-		if (!in_array($key, $array_vars_names)) {
-			$trace['vars'][$key] = $value;
-		}
-	}
-	
-	_bl::$trace[] = $trace;
-}
-
-
-function bl_get_trace() {
-
-	$result = '';
-	
-	if (count(_bl::$trace)) {
-		$count = 0;
-		foreach(_bl::$trace as $trace_key => $trace) {
-		
-			++$trace_id;
-			
-			$vars = bl_get_vars(
-				$trace['vars'], '
-				_USER', 
-				'trace_' . $trace_id . '_', 
-				bl_link_file($trace['debug'][0]['file'], $trace['debug'][0]['line']) . ' '.$trace['debug'][0]['line']
-			);
-			
-			$result .= '
-			<div class="bl_trace">
-				<div class="bl_trace_head">
-					<a href="javascript:void(0)" class="bl_trace_link" onclick="bl_toggle(\'bl_trace_info_'.$trace_id.'\')">
-						<span class="bl_trace_title">Trace '.$trace_id.'</span> |  
-						<span class="bl_trace_time">'.$trace['time'].'</span> | 
-						<span class="bl_trace_memory">'.$trace['memory'].'</span>
-					</a>
-				</div>
-				<div class="bl_trace_info" id="bl_trace_info_'.$trace_id.'">
-					'.$vars.'
-				</div>
-			</div>
-			';
-		}
-		
-	}
-
-	return $result;
-}
 
 
 function bl_profile_method($classname, $methodname, $args = '', $invocations = 1) {
@@ -2732,6 +2902,8 @@ function bl_profile_function($function, $args = '', $invocations = 1) {
     return;
 }
 
+#####################################
+### render eval panel
 
 function bl_get_eval() {
 
@@ -2759,18 +2931,14 @@ function bl_get_eval() {
 
 }
 
-
-function bl_get_defined_vars($varList, $excludeList) {
-    $temp1 = array_values(array_diff(array_keys($varList), $excludeList));
-    $temp2 = array();
-    while (list($key, $value) = each($temp1)) {
-      global $value;
-      $temp2[$value] = $value;
-    }
-    return $temp2;
-}
+#####################################
+### IP functions
 
 
+/**
+ * bl_get_ip()
+ * return the ip address
+ */
 function bl_get_ip() {
     $ip = 'ups! no IP';
     if (!empty($_SERVER['HTTP_CLIENT_IP'])){  //check ip from share internet
@@ -2787,8 +2955,12 @@ function bl_get_ip() {
 }
 
 
+/**
+ * Check if the client ip is an allowed ip
+ */
 function bl_check_ip() {
 
+	// get ips from _bl_allow_ip
     $allow_ip = trim(_bl_allow_ip);
     if (empty($allow_ip)) return true;
 
@@ -2801,11 +2973,8 @@ function bl_check_ip() {
     return false;
 }
 
-
-if (_bl_shutdown == true) {
-    $_bl_vars = get_defined_vars();
-    register_shutdown_function('bl_debug', true);
-}
+#####################################
+### fuck yeah!
 
 /**
  * bl_debug()
@@ -2817,19 +2986,21 @@ if (_bl_shutdown == true) {
  */
 function bl_debug($active = false, $return = false) {
 
+	// get memory
 	$memory = memory_get_peak_usage();
 	$memory_num = strip_tags(bl_convert($memory));
 
-	/* Load Time */
+	/* get load time */
 	$total_time = bl_get_time(_bl::$time_start);
 	$total_load_time = bl_format_time($total_time);
 	$c = count(_bl::$msgs_time);
 	_bl::$msgs_time[$c]['label'] = '<strong>Total Load Time</strong>';
 	_bl::$msgs_time[$c]['time'] = $total_load_time;
 
+	// defined vars
 	$defined_vars = $GLOBALS;
 	
-	// Monitor sql querys
+	// check monitor
     if (_bl_monitor_on) {
         bl_check_total_memory($memory); // monitor check memory
     	bl_check_load_time($total_time); // monitor check load time
@@ -3028,7 +3199,7 @@ function bl_debug($active = false, $return = false) {
 									' . bl_get_usage() . '
 								</div>
                                 <div class="in10 bl_debug_php_panel"  id="bl_debug_php_phpinfo">
-								    <p>Hidden in this demo</p>
+								    '.bl_phpinfo().'
 								</div>
                             </div>
                         </div>
@@ -3057,6 +3228,7 @@ function bl_debug($active = false, $return = false) {
 								<ul>
 									<li><a href="javascript:bl_debug_set_profile(\'profile\');" id="bl_debug_profile_btn_profile" class="bl_debug_profile_btn bl_debug_profile_btn_activo">Profile</a></li>
 									<li><a href="javascript:bl_debug_set_profile(\'trace\');" id="bl_debug_profile_btn_trace" class="bl_debug_profile_btn">Traces</a></li>
+									<li><a href="javascript:bl_debug_set_profile(\'watch\');" id="bl_debug_profile_btn_watch" class="bl_debug_profile_btn">Watches</a></li>
 								</ul>
 							</div>
 						</div>
@@ -3068,6 +3240,9 @@ function bl_debug($active = false, $return = false) {
 								<div class="in10 bl_debug_profile_panel" id="bl_debug_profile_trace">
 									'.bl_get_trace().'
 								</div>
+								<div class="in10 bl_debug_profile_panel" id="bl_debug_profile_watch">
+									'.bl_get_watches().'
+								</div>
 							</div>
 						</div>
 					</div>
@@ -3076,7 +3251,7 @@ function bl_debug($active = false, $return = false) {
 					<div id="bl_debug_info" class="bl_debug_panel ' . _bl::$panel_active['info'] . '">
 						<div class="in20 bl_panel_info">
 							<h3>About...</h3>
-							<p>Version 0.3 Beta 2</p>
+							<p>Version 0.5</p>
 							<p><strong>PHP Bug Lost</strong> is Open Source. Original idea from
                                 <a href="http://particletree.com/features/php-quick-profiler/">Php Quick Profiler</a>.</p>
 							<h3>Thanks To:</h3>
@@ -3104,7 +3279,8 @@ function bl_debug($active = false, $return = false) {
                             </p>
 
 
-							<p><strong>PHP Bug Lost</strong> by Jordifreek <small>(at gmail.com)</small>.</p>
+							<p><strong>PHP Bug Lost</strong> by Jordi Enguídanos <small>(at gmail.com)</small>.
+								See docs and support at <a href="http://phpbuglost.com">phpbuglost.com</a></p>
 						</div>
 					</div>
 
@@ -3273,6 +3449,7 @@ function bl_debug($active = false, $return = false) {
 	// add js / css
 	$result .= bl_css() . bl_js();
 
+	// alert for errors
 	if (_bl::$errors == true and _bl_alert_errors == true) {
 		$result .= '<div id="bl_show_errors">PHP Bug Lost: There are errors.</div>';
 		$result .= '
@@ -3291,130 +3468,135 @@ function bl_debug($active = false, $return = false) {
 }
 
 
-////////////////////////////////////
-// AJAX DELETE VARS
-if (isset($_GET[_bl_var_del]) and _bl_delete_vars == true and _bl_production == false) {
+if (_bl_production == false) {
 
-    // check secret key and IP
-	if (!isset($_GET['bl_key']) or $_GET['bl_key'] != _bl_secret_key) {
-        die('error-key');
+	////////////////////////////////////
+	// AJAX DELETE VARS
+	if (isset($_GET[_bl_var_del]) and _bl_delete_vars == true) {
 
-	}else if (bl_check_ip() == false) {
-	   die('error');
-	}
+		// check secret key and IP
+		if (!isset($_GET['bl_key']) or $_GET['bl_key'] != _bl_secret_key) {
+			die('error-key');
 
-	// check if exists $_SESSION
-	$session_id = session_id();
-	if (empty($session_id)) {
-		session_start();
-	}
+		}else if (bl_check_ip() == false) {
+		   die('error');
+		}
 
-	if ($_GET['type'] == '_COOKIE') {
-		if (isset($_COOKIE[$_GET['var']])) {
-			// delete cookie
-			if (setcookie($_GET['var'], '', time() - 3600, '/')) {
-				// check if cookie is deleted.
-				if (isset($_COOKIE[$_GET['var']])) {
-					die('ok');
-				} else {
-					die('error-cookie');
+		// check if exists $_SESSION
+		$session_id = session_id();
+		if (empty($session_id)) {
+			session_start();
+		}
+
+		if ($_GET['type'] == '_COOKIE') {
+			if (isset($_COOKIE[$_GET['var']])) {
+				// delete cookie
+				if (setcookie($_GET['var'], '', time() - 3600, '/')) {
+					// check if cookie is deleted.
+					if (isset($_COOKIE[$_GET['var']])) {
+						die('ok');
+					} else {
+						die('error-cookie');
+					}
 				}
 			}
+		} elseif ($_GET['type'] == '_SESSION') {
+			if (isset($_SESSION[$_GET['var']])) {
+				unset($_SESSION[$_GET['var']]);
+				die('ok');
+			}
 		}
-	} elseif ($_GET['type'] == '_SESSION') {
-		if (isset($_SESSION[$_GET['var']])) {
-			unset($_SESSION[$_GET['var']]);
-			die('ok');
+
+		// problem with $_GET['type']? or $_GET['var']?
+		die('error');
+	}
+
+
+	////////////////////////////////////
+	// FILE BROWSER
+
+	function bl_highlight_file($file, $lineSelected = 0) {
+		$result = '';
+
+		//Strip code and first span
+		$code = highlight_file($file, true);
+		//Split lines
+		$lines = explode('<br />', $code);
+		//Count
+		$lineCount = count($lines);
+		//Calc pad length
+		$padLength = strlen($lineCount);
+
+		//Loop lines
+		$n = '';
+		$l = '';
+		foreach($lines as $i => $line) {
+			//Create line number
+			$lineNum = $lineNumber;
+			$lineNumber = str_pad($i + 1,  $padLength, '0', STR_PAD_LEFT);
+
+			$style = '';
+			if ($lineSelected == $lineNumber ) {
+				$style = 'background-color:#f22;';
+			}
+			$n .= '<div mouseover="this.style.backgroundColor=\'#ccc\'" style="'.$style.'width:40px;" id="line_'.$lineNum.'">'.$lineNumber .'</div>';
+			$l .= $line .'<br />';
 		}
+
+		//Close span
+		$result .= '<table>
+			<tr>
+				<td style="font-family:monospace">'.$n.'</td>
+				<td style="font-family:monospace">'.$l.'</td>
+			</tr>
+		</table>';
+
+		return $result;
 	}
 
-    // problem with $_GET['type']? or $_GET['var']?
-	die('error');
-}
+	if (isset($_GET[_bl_var_file]) and _bl_file_viewer == true) {
 
-
-////////////////////////////////////
-// FILE BROWSER
-
-function bl_highlight_file($file, $lineSelected = 0) {
-	$result = '';
-
-	//Strip code and first span
-	$code = highlight_file($file, true);
-	//Split lines
-	$lines = explode('<br />', $code);
-	//Count
-	$lineCount = count($lines);
-	//Calc pad length
-	$padLength = strlen($lineCount);
-
-	//Loop lines
-	$n = '';
-	$l = '';
-	foreach($lines as $i => $line) {
-		//Create line number
-		$lineNum = $lineNumber;
-		$lineNumber = str_pad($i + 1,  $padLength, '0', STR_PAD_LEFT);
-
-		$style = '';
-		if ($lineSelected == $lineNumber ) {
-			$style = 'background-color:#f22;';
+		// check secret key and IP
+		if (!isset($_GET['key']) or $_GET['key'] != _bl_secret_key) {
+			die('error-key');
+		}else if (bl_check_ip() == false) {
+			die('error');
 		}
-		$n .= '<div mouseover="this.style.backgroundColor=\'#ccc\'" style="'.$style.'width:40px;" id="line_'.$lineNum.'">'.$lineNumber .'</div>';
-		$l .= $line .'<br />';
+
+		$file = strip_tags(trim($_GET[_bl_var_file]));
+		$file_line = strip_tags(trim($_GET['line']));
+
+		if (file_exists($file)) {
+
+
+			$header = '<div id="bl_header_browser">
+				<p style="float:right;"><a href="javascript:void(0);" onclick="document.getElementById(\'bl_file_container\').style.display = \'none\'; return false;">[cerrar]</a><p>
+			</div>';
+
+			die($header . '<div id="bl_file_explorer" style="overflow:scroll">'.bl_highlight_file($file, $file_line).'</div>');
+
+		}else {
+			die('error-file');
+		}
+
+
+		die('error');
 	}
 
-	//Close span
-	$result .= '<table>
-		<tr>
-			<td style="font-family:monospace">'.$n.'</td>
-			<td style="font-family:monospace">'.$l.'</td>
-		</tr>
-	</table>';
 
-	return $result;
-}
+	if (isset($_GET[_bl_var_eval]) and _bl_eval == true) {
+		// check secret key and IP
+		if (!isset($_GET['bl_key']) or $_GET['bl_key'] != _bl_secret_key) {
+			die('error-key');
+		}else if (bl_check_ip() == false) {
+			die('error');
+		}
 
-if (isset($_GET[_bl_var_file]) and _bl_file_viewer == true  and _bl_production == false) {
+		// eval($_GET[_bl_var_eval]);
+		echo 'Eval panel is deactivate';
 
-    // check secret key and IP
-	if (!isset($_GET['key']) or $_GET['key'] != _bl_secret_key) {
-        die('error-key');
-	}else if (bl_check_ip() == false) {
-        die('error');
 	}
 
-    $file = strip_tags(trim($_GET[_bl_var_file]));
-    $file_line = strip_tags(trim($_GET['line']));
-
-    if (file_exists($file)) {
-
-
-        $header = '<div id="bl_header_browser">
-            <p style="float:right;"><a href="javascript:void(0);" onclick="document.getElementById(\'bl_file_container\').style.display = \'none\'; return false;">[cerrar]</a><p>
-        </div>';
-
-        die($header . '<div id="bl_file_explorer" style="overflow:scroll">'.bl_highlight_file($file, $file_line).'</div>');
-
-    }else {
-        die('error-file');
-    }
-
-
-	die('error');
 }
 
-
-if (isset($_GET[_bl_var_eval]) and _bl_eval == true  and _bl_production == false) {
-	// check secret key and IP
-	if (!isset($_GET['bl_key']) or $_GET['bl_key'] != _bl_secret_key) {
-        die('error-key');
-	}else if (bl_check_ip() == false) {
-        die('error');
-	}
-
-	// eval($_GET[_bl_var_eval]);
-	echo 'Eval panel is deactivate';
-
-}
 ?>

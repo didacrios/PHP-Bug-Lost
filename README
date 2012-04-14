@@ -1,9 +1,8 @@
-note: phpbuglost.php contains the latest version in development. 
-CSS and JS inside phpbuglost.php is out of date
-so use presentation.css and presentation.js like external css/js. 
-I am working to set up this repository as soon as possible.
-Also I'm working on a new website with documentaion at phpbuglost.com.
-New version 0.5 is here!
+|----------------------------------------------------------------|
+|note: phpbuglost.php contains the latest version in development.|
+|This is a beta version with some experimental features, don't   |
+|recommended for production sites. Please, report errors :)      |
+|################################################################|
 
 PHP Bug Lost is a one-file script PHP debug and monitoring console. 
 Include it in your script and: send log messages, view SQL queries 
