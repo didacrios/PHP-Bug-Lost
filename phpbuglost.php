@@ -3584,6 +3584,7 @@ if (_bl_production == false) {
 	}
 
 
+	// eval panel
 	if (isset($_GET[_bl_var_eval]) and _bl_eval == true) {
 		// check secret key and IP
 		if (!isset($_GET['bl_key']) or $_GET['bl_key'] != _bl_secret_key) {
@@ -3592,9 +3593,7 @@ if (_bl_production == false) {
 			die('error');
 		}
 
-		// eval($_GET[_bl_var_eval]);
-		echo 'Eval panel is deactivate';
-
+		eval($_GET[_bl_var_eval]);
 	}
 
 }
