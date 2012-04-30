@@ -554,7 +554,10 @@ function bl_format_time($time) {
  * @return void
  */
 function bl_msg($msg, $file, $line, $type = 'user') {
-	$format_msg = $msg;
+	// don't fill memory if we don't need it later
+  if (strpos(_bl_messages_types,$type)==false) return false;
+  
+  $format_msg = $msg;
 
     if (_bl_create_times) {
         bl_time('Log missage '.substr($msg, 0, 30)).'...';
